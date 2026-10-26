@@ -62,6 +62,9 @@ export default function Detail({ tipo, codigo, onClose }) {
   const [d, setD] = useState(null)
   const [erro, setErro] = useState(null)
   const [atualizando, setAtualizando] = useState(false)
+  const [somenteLeitura, setSomenteLeitura] = useState(true)
+
+  useEffect(() => { fetch('/api/saude').then((r) => r.json()).then((d) => setSomenteLeitura(!!d.somente_leitura)).catch(() => {}) }, [])
 
   useEffect(() => {
     setD(null)
@@ -93,7 +96,7 @@ export default function Detail({ tipo, codigo, onClose }) {
             <div className="muted">{d?.razao_social}</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn" onClick={atualizar} disabled={atualizando}>{atualizando ? 'Atualizando…' : 'Recoletar'}</button>
+            {!somenteLeitura && <button className="btn" onClick={atualizar} disabled={atualizando}>{atualizando ? 'Atualizando…' : 'Recoletar'}</button>}
             <button className="btn" onClick={onClose} aria-label="Fechar">✕</button>
           </div>
         </div>

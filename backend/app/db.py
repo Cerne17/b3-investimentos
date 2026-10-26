@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.getenv("B3_DB_PATH", ROOT / "data" / "b3.db"))
+# Na Vercel (ou com B3_SOMENTE_LEITURA=1) o banco é um snapshot imutável: o disco é somente leitura.
+SOMENTE_LEITURA = bool(os.getenv("VERCEL")) or os.getenv("B3_SOMENTE_LEITURA") == "1"
 
 # (coluna, tipo SQL, descrição) — a descrição alimenta a API (/api/metricas), o MCP e o dashboard.
 IDENT = [
@@ -185,10 +187,12 @@ def sem_acento(v):
 
 
 def connect(readonly: bool = False) -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if readonly:
+    if SOMENTE_LEITURA:
+        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro&immutable=1", uri=True, check_same_thread=False)
+    elif readonly:
         conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, check_same_thread=False)
     else:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.create_function("norm", 1, sem_acento, deterministic=True)
@@ -196,6 +200,8 @@ def connect(readonly: bool = False) -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    if SOMENTE_LEITURA:
+        return
     with connect() as conn:
         conn.executescript(SCHEMA)
         # migração leve: adiciona colunas novas em bancos já existentes

@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import ingest, portfolio, repository as repo, yahoo
-from .db import ROOT, init_db
+from .db import ROOT, SOMENTE_LEITURA, init_db
 
 TAGS = [
     {"name": "ETFs", "description": "ETFs listados na B3 armazenados no SQLite."},
@@ -332,8 +332,14 @@ def _rodar_job(tipo: str | None):
         _job.update(rodando=False, fim=datetime.now(timezone.utc).isoformat())
 
 
+def _exigir_escrita():
+    if SOMENTE_LEITURA:
+        raise HTTPException(403, "Instância somente leitura: a base é um snapshot. Rode o ingest localmente para atualizar.")
+
+
 @app.post("/api/atualizar/{tipo}/{codigo}", tags=["Atualização"], summary="Recoleta um ativo agora")
 def atualizar_um(tipo: Literal["etfs", "fiis", "acoes"], codigo: str = P(..., examples=["HGLG"])):
+    _exigir_escrita()
     tabela = repo.tabela_de(tipo)
     if not repo.obter(tipo, codigo):
         raise HTTPException(404, f"{codigo} não está na base")
@@ -346,6 +352,7 @@ def atualizar_um(tipo: Literal["etfs", "fiis", "acoes"], codigo: str = P(..., ex
 
 @app.post("/api/atualizar", tags=["Atualização"], summary="Recoleta toda a base em background", status_code=202)
 def atualizar_tudo(bg: BackgroundTasks, tipo: Literal["etfs", "fiis", "acoes"] | None = None):
+    _exigir_escrita()
     if _job["rodando"]:
         raise HTTPException(409, "Atualização já em andamento")
     bg.add_task(lambda: threading.Thread(target=_rodar_job, args=(tipo,), daemon=True).start())
@@ -359,12 +366,23 @@ def status_atualizacao():
 
 @app.get("/api/saude", include_in_schema=False)
 def saude():
-    return {"ok": True}
+    return {"ok": True, "somente_leitura": SOMENTE_LEITURA}
 
 
 # ---------------- Dashboard (build do React) ----------------
 
 DIST = ROOT / "frontend" / "dist"
+
+
+@app.middleware("http")
+async def _cache_assets(request: Request, call_next):
+    resp = await call_next(request)
+    # assets do Vite têm hash no nome: podem ficar em cache (navegador e CDN da Vercel) indefinidamente
+    if request.url.path.startswith("/assets/") and resp.status_code == 200:
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
 if DIST.exists():
     app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
 

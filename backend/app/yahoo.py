@@ -13,6 +13,8 @@ import yfinance as yf
 
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+if os.getenv("VERCEL"):  # home é somente leitura na Vercel; o cache de fuso do yfinance vai para /tmp
+    yf.set_tz_cache_location("/tmp/yfinance-cache")
 
 # Sufixos tentados para montar o ticker da B3 a partir do código de 4 letras
 SUFIXOS = ("11", "39", "12", "13")

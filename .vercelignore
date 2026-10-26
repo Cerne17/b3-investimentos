@@ -1,0 +1,7 @@
+backend/.venv
+frontend/node_modules
+data/*.log
+data/*.csv
+.claude
+.env*
+.vercel

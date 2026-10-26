@@ -10,6 +10,17 @@ import Screener from './components/Screener.jsx'
 const TABS = [['geral', 'Visão geral'], ['acoes', 'Ações'], ['fiis', 'FIIs'], ['etfs', 'ETFs'], ['carteira', 'Carteira'], ['live', 'Tempo real'], ['docs', 'API & MCP']]
 const TEXTO = new Set(['codigo', 'ticker', 'razao_social', 'nome_pregao', 'nome_yahoo', 'status'])
 
+// logomarca: anéis concêntricos em heartwood; no app segue os tokens do tema
+function Logo() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 100 100" aria-hidden="true">
+      <circle cx="50" cy="50" r="12" fill="none" stroke="var(--heartwood-glow)" strokeWidth="6" />
+      <circle cx="50" cy="50" r="26" fill="none" stroke="var(--heartwood)" strokeWidth="5" opacity="0.75" />
+      <circle cx="50" cy="50" r="40" fill="none" stroke="var(--heartwood)" strokeWidth="4" opacity="0.4" />
+    </svg>
+  )
+}
+
 const tabDaUrl = () => {
   const h = window.location.hash.slice(1)
   return TABS.some(([k]) => k === h) ? h : 'geral'
@@ -19,7 +30,8 @@ export default function App() {
   const [tab, setTab] = useState(tabDaUrl)
   const [aberto, setAberto] = useState(null)
   const [extras, setExtras] = useState({})
-  const [tema, setTema] = useState(() => { try { return localStorage.getItem('tema') } catch { return null } })
+  // dark ("heartwood core") é o padrão da marca; light ("sapwood") é opcional
+  const [tema, setTema] = useState(() => { try { return localStorage.getItem('tema') || 'dark' } catch { return 'dark' } })
 
   useEffect(() => {
     const on = () => setTab(tabDaUrl())
@@ -33,20 +45,21 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (tema) document.documentElement.dataset.theme = tema
-    else delete document.documentElement.dataset.theme
-    try { tema ? localStorage.setItem('tema', tema) : localStorage.removeItem('tema') } catch {}
+    document.documentElement.dataset.theme = tema
+    try { localStorage.setItem('tema', tema) } catch {}
   }, [tema])
 
   const ir = (k) => { window.location.hash = k; setTab(k) }
   const abrir = useCallback((tipo, codigo) => setAberto({ tipo, codigo }), [])
   const fechar = useCallback(() => setAberto(null), [])
-  const escuro = tema ? tema === 'dark' : window.matchMedia?.('(prefers-color-scheme: dark)').matches
+  const escuro = tema === 'dark'
 
   return (
     <>
       <header className="topbar">
-        <div className="brand"><span className="dot" />B3 Fundos<span className="full muted" style={{ fontWeight: 400 }}>· Ações, ETFs & FIIs</span></div>
+        <a className="brand" href="#geral" style={{ color: 'inherit', textDecoration: 'none' }}>
+          <Logo />B3<span className="full muted" style={{ fontWeight: 500 }}>· cerne.pro</span>
+        </a>
         <nav className="tabs">
           {TABS.map(([k, l]) => <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => ir(k)}>{l}</button>)}
         </nav>

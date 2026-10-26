@@ -28,7 +28,7 @@ function Ranking({ titulo, itens, col, onOpen, tipo, format }) {
           {itens.map((r, i) => (
             <tr key={r.codigo} onClick={() => onOpen(tipo, r.codigo)}>
               <td className="muted num" style={{ width: 24 }}>{i + 1}</td>
-              <td><span className="tk">{r.ticker}</span> <span className="muted" style={{ fontSize: 12 }}>{r.categoria}</span></td>
+              <td style={{ whiteSpace: 'normal' }}><span className="tk">{r.ticker}</span> <span className="muted" style={{ fontSize: 12 }}>{r.categoria}</span></td>
               <td className={`num ${format ? '' : signClass(r[col])}`} style={{ fontWeight: 600 }}>{format ? format(r[col]) : formatCol(col, r[col])}</td>
             </tr>
           ))}

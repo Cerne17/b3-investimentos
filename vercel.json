@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd frontend && npm ci && npx vite build",
+  "functions": {
+    "index.py": {
+      "maxDuration": 60,
+      "includeFiles": "{data/b3.db,backend/app/**,frontend/dist/**}"
+    }
+  }
+}

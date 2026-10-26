@@ -1,0 +1,7 @@
+# dependências da função na Vercel (o MCP roda só localmente: veja backend/requirements.txt)
+fastapi>=0.115
+yfinance>=1.3
+pandas>=2.2
+numpy>=2.0
+scipy>=1.13
+httpx>=0.27
