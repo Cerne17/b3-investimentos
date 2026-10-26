@@ -52,6 +52,18 @@ cd ../backend && .venv/bin/uvicorn app.main:app --port 8000     # API + dashboar
 
 Desenvolvimento do front com hot reload: `cd frontend && npm install && npm run dev` (http://localhost:5173, com proxy para a API). Depois `npm run build` para a API servir a versão nova.
 
+## Deploy (Vercel)
+
+Em produção em **https://b3.cerne.pro** (projeto Vercel `b3-investimentos`).
+
+- `index.py` expõe o app FastAPI como função Python; o build (`vercel.json`) gera o dashboard em `frontend/dist`,
+  que o próprio FastAPI serve (assets com cache imutável).
+- Na Vercel o disco é somente leitura: o `data/b3.db` vai empacotado como snapshot imutável e os endpoints de
+  escrita (`/api/atualizar/...`) respondem 403. Para atualizar os dados: rode o `ingest` localmente, faça commit do
+  `b3.db` e publique de novo (`vercel deploy --prod`).
+- Cotações em tempo real e a otimização de carteira funcionam normalmente (consultam o Yahoo na hora).
+- O MCP roda localmente (stdio ou `--http`), apontando para o banco local.
+
 ## Exemplos de API
 
 ```bash
