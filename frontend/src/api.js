@@ -1,0 +1,37 @@
+// Cliente da API FastAPI. Em dev o Vite faz proxy de /api para :8000.
+const BASE = import.meta.env.VITE_API_URL || ''
+
+async function req(path, opts) {
+  const r = await fetch(BASE + path, opts)
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(body.detail || `Erro ${r.status}`)
+  return body
+}
+
+const qs = (params) => {
+  const p = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== '' && v !== null && v !== undefined) p.set(k, v)
+  })
+  return p.toString()
+}
+
+export const api = {
+  resumo: () => req('/api/resumo'),
+  metricas: () => req('/api/metricas'),
+  listar: (tipo, params) => req(`/api/${tipo}?${qs(params)}`),
+  obter: (tipo, codigo) => req(`/api/${tipo}/${codigo}`),
+  valores: (tipo, coluna) => req(`/api/${tipo}/valores/${coluna}`),
+  ranking: (tipo, metrica, params) => req(`/api/ranking/${tipo}/${metrica}?${qs(params)}`),
+  comparar: (codigos) => req(`/api/comparar?${qs({ codigos: codigos.join(',') })}`),
+  proventos: (codigo) => req(`/api/proventos/${codigo}`),
+  cotacao: (ticker) => req(`/api/tempo-real/cotacao/${encodeURIComponent(ticker)}`),
+  cotacoes: (tickers) => req(`/api/tempo-real/cotacoes?${qs({ tickers: tickers.join(',') })}`),
+  historico: (ticker, periodo = '6mo', intervalo = '1d') =>
+    req(`/api/tempo-real/historico/${encodeURIComponent(ticker)}?${qs({ periodo, intervalo })}`),
+  sql: (query) => req('/api/sql', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) }),
+  busca: (q) => req(`/api/busca?${qs({ q, limite: 10 })}`),
+  carteiraOpcoes: () => req('/api/carteira/opcoes'),
+  otimizar: (body) => req('/api/carteira/otimizar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  atualizar: (tipo, codigo) => req(`/api/atualizar/${tipo}/${codigo}`, { method: 'POST' }),
+}

@@ -1,0 +1,146 @@
+# B3 Fundos — Ações, ETFs & FIIs
+
+Base SQLite + API REST (FastAPI/Swagger) + servidor MCP + dashboard React para ações, ETFs e FIIs listados na B3.
+
+```
+data/            CSVs da B3 (etfsListados.csv, fundosListados.csv) e o banco b3.db
+backend/app/
+  db.py          schema SQLite + dicionário de métricas
+  yahoo.py       coleta Yahoo Finance (métricas + tempo real, ajuste de desdobramentos)
+  cvm.py         informe mensal de FIIs da CVM (VP/cota, PL, cotistas, segmento, carteira)
+  ingest.py      carga dos CSVs + coleta → SQLite
+  repository.py  consultas (usadas pela API e pelo MCP)
+  main.py        API REST (Swagger em /docs) — também serve o dashboard
+  mcp_server.py  servidor MCP
+frontend/        dashboard React (Vite)
+postman_openapi.json  especificação OpenAPI para importar no Postman
+```
+
+## Fontes e métricas
+
+| Fonte | O quê |
+|---|---|
+| CSVs da B3 | lista de ativos (razão social, nome de pregão, código) |
+| Yahoo Finance | preço, liquidez, retornos 1m/3m/6m/ano/12m/24m, retorno total com proventos, volatilidade, drawdown, Sharpe, beta e correlação com o IBOV, médias móveis, proventos (DY, último rendimento, consistência e crescimento), P/L dos ETFs |
+| CVM (Formulário Cadastral + cadastro de companhias) | lista de ações/units negociadas (ticker, ON/PN/Unit, composição da unit), segmento de listagem, setor, controle acionário |
+| Yahoo Finance (ações) | P/L, P/L projetado, P/VP, P/Receita, EV/EBITDA, PEG, LPA, VPA, valor e margem de Graham, ROE, ROA, margens, receita, EBITDA, lucro, dívida líquida/EBITDA, liquidez corrente, crescimento, payout, preço-alvo e recomendação dos analistas |
+| CVM (informe mensal) | VP/cota → P/VP, patrimônio líquido, ativo total, cotistas, alavancagem, taxa de administração, rentabilidade efetiva/patrimonial 12m, DY informado, % imóveis/papel/FIIs/caixa, segmento, mandato, gestão, administrador |
+
+`GET /api/metricas` lista as ~45 colunas de cada tabela com descrição.
+FIIs com dado suspeito (DY do Yahoo muito diferente da CVM, P/VP fora do usual, baixa liquidez) têm a coluna `alerta` preenchida.
+
+## Rodando
+
+O repositório já traz `data/b3.db` populado (coleta de 26/10/2026), então a API sobe com dados na hora.
+Rode o `ingest` para atualizar.
+
+```bash
+cd backend
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt   # ou: python -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+.venv/bin/python -m app.ingest                 # carrega CSVs + CVM + Yahoo (~15 min)
+.venv/bin/python -m app.ingest --only acao     # só ações
+.venv/bin/python -m app.ingest --pendentes     # repete só o que falhou (rate limit do Yahoo)
+
+cd ../frontend && npm install && npm run build  # gera o dashboard que a API serve
+cd ../backend && .venv/bin/uvicorn app.main:app --port 8000     # API + dashboard
+```
+
+- Dashboard: http://localhost:8000
+- Swagger: http://localhost:8000/docs · ReDoc: /redoc
+- Postman: *Import → Link* `http://localhost:8000/openapi.json` (ou importe o arquivo `postman_openapi.json`)
+
+Desenvolvimento do front com hot reload: `cd frontend && npm install && npm run dev` (http://localhost:5173, com proxy para a API). Depois `npm run build` para a API servir a versão nova.
+
+## Exemplos de API
+
+```bash
+# FIIs de logística descontados, líquidos e que pagaram todo mês
+curl "localhost:8000/api/fiis?segmento=Logística&max_pvp=0.95&min_liquidez_media=1000000&min_num_proventos_12m=12"
+
+# ETFs internacionais com volatilidade abaixo de 20%, ordenados pelo Sharpe
+curl "localhost:8000/api/etfs?categoria=Internacional&max_volatilidade_12m=20&ordenar=sharpe_12m"
+
+# Top 10 menores P/VP entre FIIs líquidos
+curl "localhost:8000/api/ranking/fiis/pvp?ordem=asc&min_liquidez_media=1000000&min_pvp=0.1"
+
+# SQL livre (somente leitura)
+curl -X POST localhost:8000/api/sql -H 'content-type: application/json' \
+  -d '{"query":"SELECT segmento, COUNT(*) n, ROUND(AVG(dividend_yield),2) dy FROM fundos WHERE status=\"ok\" GROUP BY segmento"}'
+
+# Tempo real (qualquer ticker do Yahoo)
+curl localhost:8000/api/tempo-real/cotacao/HGLG11
+curl "localhost:8000/api/tempo-real/historico/BOVA11?periodo=1y&intervalo=1wk"
+```
+
+Toda coluna numérica aceita `min_<coluna>` / `max_<coluna>`.
+
+## Dashboard
+
+- **FIIs / ETFs:** filtros, atalhos, colunas extras e exportação CSV. Marque linhas para abrir uma **tabela
+  comparativa** (métricas por grupo, melhor valor destacado, "só diferenças", salvar comparativos, CSV).
+- **Tempo real:** view *Padrão* (lista de cotações, um ativo por vez) e views customizadas salvas no navegador:
+  - *Indicadores* — um ativo com fórmulas padrão (médias, Bollinger, Donchian, RSI, MACD, estocástico,
+    volatilidade, drawdown, retorno acumulado, momentum, z-score, volume) e **fórmulas customizadas**, ex.:
+    `(close / sma(close, 200) - 1) * 100`. Variáveis `close open high low volume div`; funções
+    `sma ema std max min lag pct rsi zscore cumsum cummax cummin first abs log sqrt exp`.
+  - *Comparação* — até 8 ativos no mesmo gráfico (uma cor cada), em base 100, variação %, preço ou uma
+    fórmula aplicada a cada ativo.
+
+## Carteira (Markowitz)
+
+`POST /api/carteira/otimizar` — e a aba **Carteira** do dashboard — otimizam uma carteira com retornos diários
+totais (preço + proventos reinvestidos, ajustados por desdobramentos) e convertem os pesos em **cotas inteiras ao
+preço atual** (busca local que minimiza o desvio em R$ do alvo e a sobra, sem passar do peso máximo).
+
+```bash
+curl -X POST localhost:8000/api/carteira/otimizar -H 'content-type: application/json' -d '{
+  "tickers": ["MXRF11", "GARE11", "GOLD11", "AUVP11"], "valor": 400,
+  "peso_min": 0, "peso_max": 0.35, "filosofia": "value_conservador"
+}'
+```
+
+Indicadores (`indicadores`): `sharpe`, `sortino`, `calmar`, `renda_risco` (DY/volatilidade), `omega`, `min_vol`,
+`min_cvar`, `min_drawdown`, `risk_parity`, `max_dy`, `max_retorno`.
+Filosofias (`filosofia`) que escolhem os indicadores sozinhas: `value_conservador`, `renda`, `defensivo`,
+`equilibrado`, `crescimento` (`GET /api/carteira/opcoes`). A resposta sempre traz também a carteira de pesos
+iguais, métricas por ativo, matriz de correlação e a fronteira eficiente.
+
+## MCP
+
+Ferramentas: `buscar_fiis`, `buscar_etfs`, `detalhes_ativo`, `comparar_ativos`, `ranking`, `resumo_mercado`,
+`dicionario_metricas`, `valores_coluna`, `consultar_sql`, `cotacao_tempo_real`, `historico_precos`, `buscar_ativos`,
+`otimizar_carteira`, `atualizar_ativo`.
+
+Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "b3-fundos": {
+      "command": "/CAMINHO/backend/.venv/bin/python",
+      "args": ["/CAMINHO/backend/run_mcp.py"]
+    }
+  }
+}
+```
+
+Claude Code:
+
+```bash
+claude mcp add b3-fundos -- /CAMINHO/backend/.venv/bin/python /CAMINHO/backend/run_mcp.py
+```
+
+Modo HTTP (para clientes remotos): `python run_mcp.py --http` → `http://localhost:8001/mcp`.
+
+## Observações
+
+- Dados do Yahoo Finance são não oficiais e podem ter atraso/falhas; o coletor tenta de novo em caso de rate limit.
+- Desdobramentos/grupamentos que o Yahoo não ajusta são detectados por saltos de preço > 60% e corrigidos no histórico.
+- ~110 FIIs da lista da B3 não têm negociação no Yahoo (`status = 'sem_dados'`), mas mantêm os dados da CVM.
+- Units (TAEE11, SANB11...): o Yahoo mistura bases por ação e por unit; P/L e LPA são estimados por P/VP ÷ ROE
+  e marcados na coluna `alerta`.
+- Sharpe usa taxa livre de risco de 14% a.a. (variável `B3_TAXA_LIVRE_RISCO`).
+- A API não tem autenticação — pensada para uso local.
+
+> Dados de mercado são do Yahoo Finance (não oficiais) e da CVM. Uso educacional — não é recomendação de investimento.

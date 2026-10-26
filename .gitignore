@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node / build
+frontend/node_modules/
+frontend/dist/
+
+# logs e locais
+data/*.log
+*.log
+.DS_Store
+.claude/
