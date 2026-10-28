@@ -3,7 +3,8 @@ import { api } from '../api.js'
 import { fmt, signClass, signed } from '../format.js'
 import { FrontierChart } from './Charts.jsx'
 import BuscaAtivo from './BuscaAtivo.jsx'
-import { carregar, novaCarteira } from '../lib/broker.js'
+import { novaCarteira } from '../lib/broker.js'
+import ImportarBroker from './ImportarBroker.jsx'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 const cor = (i) => CORES[i] || 'var(--text-muted)' // acima de 8 ativos a cor deixa de identificar; o rótulo sempre aparece
@@ -97,22 +98,11 @@ export default function Carteira({ onSimular, onBroker }) {
   const toggle = (k) => { setFilosofia(''); setInds((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k])) }
   const add = (t) => setTickers((s) => (s.includes(t) ? s : [...s, t]))
 
-  // carteiras do Home Broker (localStorage): trazem os ativos e o valor de mercado atual
-  const [doBroker] = useState(() => carregar().carteiras.filter((c) => c.posicoes.length))
   const [importada, setImportada] = useState(null)
-  const importar = async (id) => {
-    if (!id) return
-    const escolhidas = id === '*' ? doBroker : doBroker.filter((c) => c.id === id)
-    const posicoes = escolhidas.flatMap((c) => c.posicoes)
-    const lista = [...new Set(posicoes.map((p) => p.ticker))]
-    setTickers(lista); setRes(null); setErro(null)
+  const importarInicio = ({ nome, tickers: lista }) => {
+    setTickers(lista); setRes(null); setErro(null); setImportada(nome)
     // peso máximo precisa permitir somar 100% com esse número de ativos
     setPmax((m) => Math.max(m, Math.ceil(100 / lista.length)))
-    setImportada(id === '*' ? `${escolhidas.length} carteiras do Home Broker` : escolhidas[0].nome)
-    let cot = {}
-    try { cot = await api.cotacoes(lista) } catch {}
-    const total = posicoes.reduce((s, p) => s + p.quantidade * (cot[p.ticker]?.preco || p.preco_medio), 0)
-    if (total > 0) setValor(Math.round(total))
   }
 
   const rodar = async () => {
@@ -149,15 +139,7 @@ export default function Carteira({ onSimular, onBroker }) {
       <div className="card">
         <div className="filters" style={{ marginBottom: 8 }}>
           <BuscaAtivo onAdd={add} />
-          {doBroker.length > 0 && (
-            <label className="field">Importar do Home Broker
-              <select value="" onChange={(e) => importar(e.target.value)}>
-                <option value="">Escolha uma carteira…</option>
-                {doBroker.map((c) => <option key={c.id} value={c.id}>{c.nome} ({c.posicoes.length} {c.posicoes.length === 1 ? 'ativo' : 'ativos'})</option>)}
-                {doBroker.length > 1 && <option value="*">Todas juntas</option>}
-              </select>
-            </label>
-          )}
+          <ImportarBroker onInicio={importarInicio} onValores={({ total }) => setValor(Math.round(total))} />
         </div>
         {importada && <p className="muted" style={{ fontSize: 13, margin: '0 0 8px' }}>Ativos e valor de mercado trazidos de <b>{importada}</b>. A otimização ignora os pesos atuais e propõe novos.</p>}
         <div className="chips" style={{ gap: 8 }}>

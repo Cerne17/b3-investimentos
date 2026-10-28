@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api } from '../api.js'
 import { fmt, signClass, signed } from '../format.js'
 import BuscaAtivo from './BuscaAtivo.jsx'
+import ImportarBroker from './ImportarBroker.jsx'
 import { FanChart, Histogram } from './Charts.jsx'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
@@ -223,6 +224,14 @@ export default function MonteCarlo({ preset }) {
     setOrigem(preset.nome || null)
   }, [preset?.t])
 
+  // carteira do Home Broker: pesos pelo valor de mercado de cada posição e valor inicial = patrimônio atual
+  const importarInicio = ({ nome, tickers }) => {
+    setItens(tickers.map((t) => ({ ticker: t, peso: +(100 / tickers.length).toFixed(2) }))); setOrigem(nome); setRes(null); setErro(null)
+  }
+  const importarValores = ({ tickers, valores, total }) => {
+    setItens(tickers.map((t, i) => ({ ticker: t, peso: +(valores[i] / total * 100).toFixed(2) })))
+    setValor(Math.round(total))
+  }
   const add = (t) => setItens((s) => (s.some((x) => x.ticker === t) ? s : [...s, { ticker: t, peso: s.length ? 0 : 100 }]))
 
   const rodar = async () => {
@@ -275,7 +284,10 @@ export default function MonteCarlo({ preset }) {
         ) : (
           <>
             {origem && <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>Carteira trazida: <b>{origem}</b></div>}
-            <div className="filters" style={{ marginBottom: 8 }}><BuscaAtivo onAdd={add} label="Adicionar ativo" /></div>
+            <div className="filters" style={{ marginBottom: 8 }}>
+              <BuscaAtivo onAdd={add} label="Adicionar ativo" />
+              <ImportarBroker onInicio={importarInicio} onValores={importarValores} />
+            </div>
             <Pesos itens={itens} setItens={setItens} />
             <div className="filters">
               <label className="field">Valor inicial (R$)<input type="number" min="0" value={valor} onChange={(e) => setValor(e.target.value)} /></label>
