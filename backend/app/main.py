@@ -379,7 +379,8 @@ def cotacoes(tickers: str = Query(..., examples=["HGLG11,BOVA11,IVVB11"])):
 @app.get("/api/tempo-real/historico/{ticker}", tags=["Tempo real"], summary="Histórico de preços (OHLCV)")
 def historico(
     ticker: str = P(..., examples=["BOVA11"]),
-    periodo: Literal["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"] = "6mo",
+    periodo: Literal["1d", "24h", "5d", "7d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"] = Query(
+        "6mo", description="1d = último pregão (hoje); 24h e 7d = janelas móveis das últimas 24 horas / 7 dias"),
     intervalo: Literal["1m", "5m", "15m", "30m", "1h", "1d", "1wk", "1mo"] = "1d",
 ):
     return _yahoo(yahoo.historico, ticker, periodo, intervalo)

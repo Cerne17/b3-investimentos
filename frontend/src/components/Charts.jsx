@@ -23,7 +23,20 @@ const ticks = (min, max, n = 4) => {
 
 const PAD = { l: 52, r: 12, t: 10, b: 24 }
 
-export function LineChart({ data, x, y, height = 220, format = fmt.brl, label = 'Fechamento' }) {
+// rótulo do eixo X: data para séries diárias; hora (ou dia + hora, se passar de um dia) para intraday
+export function rotuloX(datas) {
+  const intradia = datas.length > 1 && String(datas[0]).length > 10 && /T\d\d:\d\d/.test(datas[0]) && !/T00:00:00/.test(datas[0] + datas[1])
+  if (!intradia) return fmt.date
+  const span = Date.parse(datas[datas.length - 1]) - Date.parse(datas[0])
+  return (s, longo) => {
+    const d = new Date(s)
+    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    if (longo || span > 26 * 3600e3) return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${hora}`
+    return hora
+  }
+}
+
+export function LineChart({ data, x, y, height = 220, format = fmt.brl, label = 'Fechamento', fmtX }) {
   const [ref, w] = useWidth()
   const [hover, setHover] = useState(null)
   const pts = data.filter((d) => d[y] != null)
@@ -37,6 +50,7 @@ export function LineChart({ data, x, y, height = 220, format = fmt.brl, label = 
   const sy = (v) => PAD.t + ih - ((v - min) / (max - min)) * ih
   const path = pts.map((d, i) => `${i ? 'L' : 'M'}${sx(i).toFixed(1)},${sy(d[y]).toFixed(1)}`).join('')
   const xt = [0, Math.floor(pts.length / 3), Math.floor((2 * pts.length) / 3), pts.length - 1]
+  const fx = fmtX || rotuloX(pts.map((d) => d[x]))
 
   const onMove = (e) => {
     const r = e.currentTarget.getBoundingClientRect()
@@ -57,7 +71,7 @@ export function LineChart({ data, x, y, height = 220, format = fmt.brl, label = 
         ))}
         {xt.map((i) => (
           <text key={i} x={sx(i)} y={height - 6} textAnchor={i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}>
-            {fmt.date(pts[i][x])}
+            {fx(pts[i][x])}
           </text>
         ))}
         <path d={path} fill="none" stroke="var(--series-1)" strokeWidth="2" strokeLinejoin="round" />
@@ -71,7 +85,7 @@ export function LineChart({ data, x, y, height = 220, format = fmt.brl, label = 
       {h && (
         <div className="tooltip" style={{ left: `${(sx(hover) / w) * 100}%`, top: sy(h[y]) - 6 }}>
           <b className="num">{format(h[y])}</b>
-          <span className="muted">{fmt.date(h[x])}</span>
+          <span className="muted">{fx(h[x], true)}</span>
         </div>
       )}
     </div>
@@ -254,8 +268,9 @@ export function FrontierChart({ fronteira, ativos, carteiras, cores, height = 34
 }
 
 // Várias séries no mesmo eixo (sem eixo duplo). Crosshair com o valor de todas as séries no ponto.
-export function MultiLineChart({ datas, series, height = 260, fmtY = (v) => fmt.num(v), fmtX = fmt.date, refs = [], label = 'Gráfico' }) {
+export function MultiLineChart({ datas, series, height = 260, fmtY = (v) => fmt.num(v), fmtX: fmtXProp, refs = [], label = 'Gráfico' }) {
   const [ref, w] = useWidth()
+  const fmtX = fmtXProp || rotuloX(datas)
   const [hover, setHover] = useState(null)
   const n = datas.length
   const vals = series.flatMap((s) => Array.from(s.valores).filter(Number.isFinite))

@@ -3,8 +3,10 @@ import { api } from '../api.js'
 import { GRUPOS, LABELS } from '../config.js'
 import { colClass, fmt, formatCol, signClass, signed } from '../format.js'
 import { BarChart, LineChart } from './Charts.jsx'
+import { intervaloPadrao, PERIODOS as TODOS, TITULOS } from './live/comum.jsx'
 
-const PERIODOS = [['1mo', '1M'], ['6mo', '6M'], ['1y', '1A'], ['2y', '2A'], ['5y', '5A']]
+const PERIODOS = TODOS.filter(([p]) => !['3mo', 'max'].includes(p))
+
 
 export function PriceChart({ ticker }) {
   const [periodo, setPeriodo] = useState('1y')
@@ -12,14 +14,14 @@ export function PriceChart({ ticker }) {
   const [erro, setErro] = useState(null)
   useEffect(() => {
     setHist(null); setErro(null)
-    api.historico(ticker, periodo, periodo === '5y' ? '1wk' : '1d').then(setHist).catch((e) => setErro(e.message))
+    api.historico(ticker, periodo, intervaloPadrao(periodo)).then(setHist).catch((e) => setErro(e.message))
   }, [ticker, periodo])
   return (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <h2 style={{ margin: 0 }}>Preço de fechamento · {ticker}</h2>
         <div className="seg">
-          {PERIODOS.map(([p, l]) => <button key={p} className={p === periodo ? 'on' : ''} onClick={() => setPeriodo(p)}>{l}</button>)}
+          {PERIODOS.map(([p, l]) => <button key={p} className={p === periodo ? 'on' : ''} title={TITULOS[p]} onClick={() => setPeriodo(p)}>{l}</button>)}
         </div>
       </div>
       {erro ? <div className="empty">{erro}</div> : hist ? <LineChart data={hist} x="data" y="fechamento" /> : <div className="empty">Carregando…</div>}

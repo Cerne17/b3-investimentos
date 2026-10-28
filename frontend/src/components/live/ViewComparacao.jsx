@@ -4,7 +4,7 @@ import { fmt, signClass, signed } from '../../format.js'
 import { calcular, compilar, EXEMPLOS, series } from '../../lib/formulas.js'
 import BuscaAtivo from '../BuscaAtivo.jsx'
 import { MultiLineChart } from '../Charts.jsx'
-import { alinhar, cor, intervaloPadrao, SeletorPeriodo } from './comum.jsx'
+import { alinhar, chaveIntraday, cor, intervaloPadrao, SeletorPeriodo } from './comum.jsx'
 
 const MAX = 8 // acima disso as cores deixam de ser distinguíveis
 
@@ -52,11 +52,11 @@ export default function ViewComparacao({ view, onChange }) {
   }, [tickers.join(',')])
 
   const prontos = tickers.filter((t) => hists[t])
-  const intraday = !['1d', '1wk'].includes(intervalo)
+  const intraday = !['1d', '1wk', '1mo'].includes(intervalo)
 
   const { datas, linhas, erroCalc } = useMemo(() => {
     if (!prontos.length) return { datas: [], linhas: [] }
-    const { datas, idx } = alinhar(prontos.map((t) => hists[t]), intraday ? (d) => d.slice(0, 16) : undefined)
+    const { datas, idx } = alinhar(prontos.map((t) => hists[t]), intraday ? chaveIntraday : undefined)
     let erroCalc = null
     const linhas = prontos.map((t) => {
       const h = hists[t]
@@ -70,7 +70,7 @@ export default function ViewComparacao({ view, onChange }) {
         v = v.map((x) => (modo === 'base100' ? (x / base) * 100 : (x / base - 1) * 100))
       }
       const grade = new Float64Array(datas.length).fill(NaN)
-      h.forEach((p, i) => { grade[idx.get(intraday ? p.data.slice(0, 16) : p.data.slice(0, 10))] = v[i] })
+      h.forEach((p, i) => { grade[idx.get(intraday ? chaveIntraday(p.data) : p.data.slice(0, 10))] = v[i] })
       return { t, valores: grade, stats: estatisticas(d.close) }
     })
     return { datas, linhas, erroCalc }

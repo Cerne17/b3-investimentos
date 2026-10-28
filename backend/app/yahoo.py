@@ -421,8 +421,23 @@ def historico(ticker: str, period: str = "6mo", interval: str = "1d") -> list[di
     return _cache(("hist", ticker.upper(), period, interval), lambda: _historico(ticker, period, interval))
 
 
+# janelas móveis que o Yahoo não tem como período: baixa uma janela maior e corta (24h = últimas 24 horas,
+# 7d = últimos 7 dias corridos). "1d" = último pregão: o Yahoo devolve vazio nos primeiros minutos do pregão,
+# então baixa 5 dias e fica com o último dia que tem dados (cripto: o dia em UTC).
+JANELAS = {"24h": ("5d", timedelta(hours=24)), "7d": ("1mo", timedelta(days=7))}
+
+
 def _historico(ticker: str, period: str, interval: str) -> list[dict]:
+    corte, ultimo_dia = None, False
+    if period in JANELAS:
+        period, corte = JANELAS[period]
+    elif period == "1d" and interval not in ("1d", "1wk", "1mo"):
+        period, ultimo_dia = "5d", True
     hist = history(ticker, period, interval)
+    if corte is not None and not hist.empty:
+        hist = hist[hist.index >= hist.index[-1] - corte]
+    if ultimo_dia and not hist.empty:
+        hist = hist[hist.index.date == hist.index[-1].date()]
     if hist.empty:
         raise LookupError(f"Sem histórico para {ticker}")
     if interval in ("1d", "1wk", "1mo") and not eh_cripto(ticker):

@@ -89,6 +89,7 @@ curl -X POST localhost:8000/api/sql -H 'content-type: application/json' \
 # Tempo real (qualquer ticker do Yahoo)
 curl localhost:8000/api/tempo-real/cotacao/HGLG11
 curl "localhost:8000/api/tempo-real/historico/BOVA11?periodo=1y&intervalo=1wk"
+curl "localhost:8000/api/tempo-real/historico/BTC-BRL?periodo=24h&intervalo=5m"   # 1d = último pregão, 24h e 7d = janelas móveis
 ```
 
 Toda coluna numérica aceita `min_<coluna>` / `max_<coluna>`.

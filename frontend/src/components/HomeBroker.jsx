@@ -4,6 +4,7 @@ import { carregar, limpar, novaCarteira, salvar } from '../lib/broker.js'
 import { fmt, signClass, signed } from '../format.js'
 import BuscaAtivo from './BuscaAtivo.jsx'
 import { MultiLineChart } from './Charts.jsx'
+import { TITULOS } from './live/comum.jsx'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 const cor = (i) => CORES[i] || 'var(--text-muted)'
@@ -11,7 +12,8 @@ const CLASSES = { ACAO: 'Ações', FII: 'FIIs', ETF: 'ETFs', CRIPTO: 'Cripto' }
 const TIPO_ROTA = { ACAO: 'acoes', FII: 'fiis', ETF: 'etfs', CRIPTO: 'criptos' }
 const PERIODOS = [
   { k: '1d', l: 'Hoje', intervalo: '5m', minutos: 5 },
-  { k: '5d', l: '5 dias', intervalo: '30m', minutos: 30 },
+  { k: '24h', l: '1 dia', intervalo: '5m', minutos: 5 },
+  { k: '7d', l: '1 semana', intervalo: '30m', minutos: 30 },
   { k: '1mo', l: '1 mês', intervalo: '1d' },
   { k: '6mo', l: '6 meses', intervalo: '1d' },
   { k: '1y', l: '1 ano', intervalo: '1d' },
@@ -23,11 +25,6 @@ const EXEMPLO = [
   { ticker: 'BTC-BRL', quantidade: 0.0012, preco_medio: 450000 },
 ]
 const qtdFmt = (q) => (Number.isInteger(q) ? fmt.int(q) : fmt.num(q, q < 1 ? 6 : 4))
-const hora = (s, longo) => {
-  const d = new Date(s)
-  return longo ? d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-}
 
 function Kpi({ label, value, sub, className = '' }) {
   return (
@@ -68,7 +65,7 @@ function useEvolucao(posicoes, periodo, tick) {
       })
       .catch((e) => vivo && setErro(e.message))
     return () => { vivo = false }
-  }, [chave, periodo, periodo === '1d' ? tick : 0])
+  }, [chave, periodo, ['1d', '24h'].includes(periodo) ? tick : 0])
   return [serie, erro]
 }
 
@@ -272,7 +269,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <h2 style={{ margin: 0 }}>Valor da carteira</h2>
             <div className="seg">
-              {PERIODOS.map((p) => <button key={p.k} className={periodo === p.k ? 'on' : ''} onClick={() => setPeriodo(p.k)}>{p.l}</button>)}
+              {PERIODOS.map((p) => <button key={p.k} className={periodo === p.k ? 'on' : ''} title={TITULOS[p.k]} onClick={() => setPeriodo(p.k)}>{p.l}</button>)}
             </div>
           </div>
           {serie ? (
@@ -282,7 +279,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
                 {' '}· quantidades de hoje aplicadas aos preços de cada momento
               </div>
               <MultiLineChart datas={serie.datas} series={[{ nome: 'Carteira', valores: serie.valores, cor: 'var(--series-1)' }]}
-                fmtY={(v) => fmt.brl(v)} fmtX={serie.intradia ? hora : fmt.date} label="Valor da carteira no período"
+                fmtY={(v) => fmt.brl(v)} label="Valor da carteira no período"
                 refs={tot.custo ? [{ y: tot.custo, label: 'Custo' }] : []} height={240} />
             </>
           ) : <div className="empty">{erroSerie || (posicoes.length ? 'Carregando histórico…' : 'Adicione ativos para ver a evolução.')}</div>}
