@@ -437,7 +437,10 @@ def _historico(ticker: str, period: str, interval: str) -> list[dict]:
     if corte is not None and not hist.empty:
         hist = hist[hist.index >= hist.index[-1] - corte]
     if ultimo_dia and not hist.empty:
-        hist = hist[hist.index.date == hist.index[-1].date()]
+        dias = sorted(set(hist.index.date))
+        hoje = hist[hist.index.date == dias[-1]]
+        # nos primeiros minutos do pregão há 1-2 candles: mostra o pregão anterior junto para dar contexto
+        hist = hist[hist.index.date >= dias[-2]] if len(hoje) < 3 and len(dias) > 1 else hoje
     if hist.empty:
         raise LookupError(f"Sem histórico para {ticker}")
     if interval in ("1d", "1wk", "1mo") and not eh_cripto(ticker):
