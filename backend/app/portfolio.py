@@ -9,7 +9,7 @@ import yfinance as yf
 from scipy.optimize import minimize
 
 from . import repository as repo
-from .yahoo import TAXA_LIVRE_RISCO, ajustar_splits, cotacao, yahoo_symbol
+from .yahoo import TAXA_LIVRE_RISCO, ajustar_splits, cotacao, eh_cripto, history
 
 DIAS = 252
 
@@ -64,29 +64,52 @@ _CACHE: dict = {}
 
 
 def _serie_total(ticker: str, periodo: str) -> tuple[pd.Series, float, float]:
-    """Retornos diários totais (preço + proventos reinvestidos), último preço e DY 12m."""
+    """Índice de retorno total (preço + proventos reinvestidos, base 1), último preço e DY 12m."""
     chave = (ticker, periodo)
     hit = _CACHE.get(chave)
     if hit and time.time() - hit[0] < 600:
         return hit[1]
-    hist = yf.Ticker(yahoo_symbol(ticker)).history(period=periodo, auto_adjust=False)
+    hist = history(ticker, periodo)
     if hist.empty:
         raise LookupError(f"Sem histórico para {ticker} no Yahoo Finance")
-    hist, _ = ajustar_splits(hist)
+    if not eh_cripto(ticker):
+        hist, _ = ajustar_splits(hist)
     close = hist["Close"].dropna()
     divs = hist["Dividends"].reindex(close.index).fillna(0) if "Dividends" in hist else 0 * close
-    ret = ((close + divs) / close.shift(1) - 1).dropna()
-    ret.index = ret.index.tz_localize(None).normalize()
+    ret = ((close + divs) / close.shift(1)).fillna(1)
+    indice = ret.cumprod()
+    idx = indice.index.tz_localize(None) if indice.index.tz is not None else indice.index
+    indice.index = idx.normalize()
+    indice = indice[~indice.index.duplicated(keep="last")]
     ultimo = close.index[-1]
     dy = float(divs[divs.index >= ultimo - pd.Timedelta(days=365)].sum()) / float(close.iloc[-1]) * 100
-    out = (ret.rename(ticker), float(close.iloc[-1]), dy)
+    out = (indice.rename(ticker), float(close.iloc[-1]), dy)
     _CACHE[chave] = (time.time(), out)
     return out
 
 
+def retornos_alinhados(tickers: list[str], periodo: str) -> tuple[pd.DataFrame, list, int]:
+    """Retornos diários de todos os ativos nas mesmas datas. Com algum ativo da bolsa, usa os pregões
+    (o fim de semana da cripto entra no retorno de segunda); só cripto, usa todos os dias (365/ano)."""
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        series = list(pool.map(lambda t: _serie_total(t, periodo), tickers))
+    so_cripto = all(eh_cripto(t) for t in tickers)
+    bolsa = [s[0] for t, s in zip(tickers, series) if not eh_cripto(t)]
+    datas = sorted(set().union(*(s.index for s in bolsa))) if bolsa else None
+    precos = []
+    for s in series:
+        ind = s[0]
+        if datas is not None:
+            ind = ind.reindex(ind.index.union(datas)).ffill().reindex(datas)
+        precos.append(ind)
+    P = pd.concat(precos, axis=1).dropna()
+    R_df = P.pct_change().dropna()
+    return R_df, series, 365 if so_cripto else DIAS
+
+
 # ---------- métricas de uma carteira ----------
 
-def metricas(w: np.ndarray, R: np.ndarray, dy: np.ndarray, rf: float) -> dict:
+def metricas(w: np.ndarray, R: np.ndarray, dy: np.ndarray, rf: float, DIAS: int = DIAS) -> dict:
     r = R @ w
     rf_d = (1 + rf) ** (1 / DIAS) - 1
     ret = float(r.mean() * DIAS)
@@ -114,7 +137,7 @@ def metricas(w: np.ndarray, R: np.ndarray, dy: np.ndarray, rf: float) -> dict:
     }
 
 
-def _objetivo(nome: str, R, mu, cov, dy, rf):
+def _objetivo(nome: str, R, mu, cov, dy, rf, DIAS: int = DIAS):
     rf_d = (1 + rf) ** (1 / DIAS) - 1
 
     def port(w):
@@ -179,23 +202,28 @@ def fronteira(mu, cov, lo, hi, pontos=30):
     return out
 
 
-def alocar(w: np.ndarray, precos: np.ndarray, valor: float, peso_max: float) -> dict:
+def alocar(w: np.ndarray, precos: np.ndarray, valor: float, peso_max: float, fracionario: np.ndarray | None = None) -> dict:
     """Converte pesos em cotas inteiras ao preço atual. Busca local (comprar uma cota / trocar uma cota de um
     ativo por outra) minimizando o desvio quadrático em R$ entre o alocado e o alvo, sem passar do valor
-    disponível nem do peso máximo por ativo."""
+    disponível nem do peso máximo por ativo. Ativos fracionários (cripto) recebem o valor-alvo exato e
+    absorvem a sobra das cotas inteiras até o peso máximo."""
+    fracionario = np.zeros(len(w), bool) if fracionario is None else np.asarray(fracionario, bool)
     alvo = w * valor
     teto = peso_max * valor + 1e-6
-    cotas = np.floor(alvo / precos).astype(int)
-    # desvio do alvo + caixa parado (sobra também conta como desvio)
-    custo = lambda c: float(np.sum((c * precos - alvo) ** 2) + (valor - c @ precos) ** 2)
-    ok = lambda c: c.min() >= 0 and c @ precos <= valor + 1e-6 and np.all(c * precos <= teto)
+    inteiros = ~fracionario
+    cotas = np.where(fracionario, 0.0, np.floor(alvo / precos))
+    caixa = valor - float(alvo[fracionario].sum())  # orçamento das cotas inteiras
+    # desvio do alvo + caixa parado (sobra também conta como desvio; com cripto, a sobra vai para ela)
+    pena = 0.0 if fracionario.any() else 1.0
+    custo = lambda c: float(np.sum(((c * precos - alvo) ** 2)[inteiros]) + pena * (caixa - c[inteiros] @ precos[inteiros]) ** 2)
+    ok = lambda c: c.min() >= 0 and c[inteiros] @ precos[inteiros] <= caixa + 1e-6 and np.all(c * precos <= teto)
     atual = custo(cotas)
-    for _ in range(1000):
+    n = len(w)
+    idx = [i for i in range(n) if inteiros[i]]
+    for _ in range(1000 if idx else 0):
         melhor = None
-        n = len(w)
-        for i in range(n):
-            moves = [np.eye(n, dtype=int)[i]] + [np.eye(n, dtype=int)[i] - np.eye(n, dtype=int)[j] for j in range(n) if j != i]
-            moves += [-np.eye(n, dtype=int)[i]]
+        for i in idx:
+            moves = [np.eye(n)[i]] + [np.eye(n)[i] - np.eye(n)[j] for j in idx if j != i] + [-np.eye(n)[i]]
             for m in moves:
                 c = cotas + m
                 if ok(c):
@@ -205,10 +233,25 @@ def alocar(w: np.ndarray, precos: np.ndarray, valor: float, peso_max: float) -> 
         if melhor is None:
             break
         atual, cotas = melhor
+    if fracionario.any():
+        sobra = valor - float(cotas[inteiros] @ precos[inteiros])
+        valores_f = alvo[fracionario].copy()
+        sobra -= valores_f.sum()
+        # distribui a sobra entre as criptos proporcionalmente ao peso, respeitando o teto
+        for _ in range(5):
+            folga = np.maximum(teto - valores_f, 0)
+            if sobra <= 0.01 or folga.sum() <= 0:
+                break
+            base = np.where(folga > 0, alvo[fracionario] + 1e-9, 0)
+            extra = np.minimum(folga, sobra * base / base.sum())
+            valores_f += extra
+            sobra -= float(extra.sum())
+        cotas[fracionario] = np.floor(valores_f / precos[fracionario] * 1e8) / 1e8
     investido = float(cotas @ precos)
     valores = cotas * precos
     return {
-        "cotas": cotas.tolist(),
+        "cotas": [float(c) if f else int(c) for c, f in zip(cotas, fracionario)],
+        "fracionario": fracionario.tolist(),
         "precos": precos.round(2).tolist(),
         "valores": valores.round(2).tolist(),
         "pct_do_valor": (valores / valor).round(4).tolist(),
@@ -243,14 +286,12 @@ def otimizar(
     indicadores = indicadores or ["sharpe", "sortino", "min_vol", "calmar"]
     rf = TAXA_LIVRE_RISCO if taxa_livre_risco is None else taxa_livre_risco
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        series = list(pool.map(lambda t: _serie_total(t, periodo), tickers))
-    R_df = pd.concat([s[0] for s in series], axis=1, join="inner").dropna()
+    R_df, series, dias = retornos_alinhados(tickers, periodo)
     if len(R_df) < 60:
         raise ValueError("Histórico comum insuficiente (menos de 60 pregões em comum).")
     R = R_df.to_numpy()
-    mu = R.mean(axis=0) * DIAS
-    cov = np.cov(R, rowvar=False) * DIAS
+    mu = R.mean(axis=0) * dias
+    cov = np.cov(R, rowvar=False) * dias
     dy = np.array([s[2] for s in series])
 
     # preço atual da cota (tempo real; cai para o último fechamento)
@@ -262,24 +303,26 @@ def otimizar(
             precos.append(s[1])
     precos = np.array(precos)
 
+    frac = np.array([eh_cripto(t) for t in tickers])
+
     def montar(nome, chave, w, descricao):
         return {
             "chave": chave, "nome": nome, "descricao": descricao,
             "pesos": dict(zip(tickers, w.round(4).tolist())),
-            "metricas": {k: (round(v, 4) if v is not None else None) for k, v in metricas(w, R, dy, rf).items()},
-            "alocacao": alocar(w, precos, valor, peso_max),
+            "metricas": {k: (round(v, 4) if v is not None else None) for k, v in metricas(w, R, dy, rf, dias).items()},
+            "alocacao": alocar(w, precos, valor, peso_max, frac),
         }
 
     carteiras = []
     for i, ind in enumerate(indicadores):
-        w = _otimizar(_objetivo(ind, R, mu, cov, dy, rf), n, peso_min, peso_max, seed=i)
+        w = _otimizar(_objetivo(ind, R, mu, cov, dy, rf, dias), n, peso_min, peso_max, seed=i)
         carteiras.append(montar(INDICADORES[ind]["nome"], ind, w, INDICADORES[ind]["descricao"]))
     eq = np.full(n, 1 / n)
     iguais = montar("Pesos iguais", "iguais", eq, "Referência: mesmo peso em cada ativo.")
 
     fundamentos = {}
     for t in tickers:
-        for tipo in ("acao", "fii", "etf"):
+        for tipo in (("cripto",) if eh_cripto(t) else ("acao", "fii", "etf")):
             d = repo.obter(tipo, t)
             if d:
                 fundamentos[t] = {k: d.get(k) for k in ("categoria", "segmento", "pvp", "pl", "roe", "dividend_yield", "liquidez_media", "nome_pregao")}
@@ -289,7 +332,7 @@ def otimizar(
     ativos = []
     for j, t in enumerate(tickers):
         w = np.zeros(n); w[j] = 1
-        m = metricas(w, R, dy, rf)
+        m = metricas(w, R, dy, rf, dias)
         ativos.append({"ticker": t, "preco": round(float(precos[j]), 2), "retorno_anual": round(float(mu[j]) * 100, 2),
                        "volatilidade": round(math.sqrt(cov[j, j]) * 100, 2), "sharpe": round(m["sharpe"], 3) if m["sharpe"] is not None else None,
                        "max_drawdown": round(m["max_drawdown"], 2), "dividend_yield": round(float(dy[j]), 2),
@@ -298,7 +341,7 @@ def otimizar(
     return {
         "parametros": {"tickers": tickers, "valor": valor, "peso_min": peso_min, "peso_max": peso_max, "periodo": periodo,
                        "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores,
-                       "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"), "pregoes": len(R_df)},
+                       "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"), "pregoes": len(R_df), "dias_ano": dias},
         "ativos": ativos,
         "correlacao": {"tickers": tickers, "matriz": np.corrcoef(R, rowvar=False).round(3).tolist()},
         "carteiras": carteiras,

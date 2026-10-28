@@ -26,6 +26,59 @@ def yahoo_symbol(ticker: str) -> str:
     return f"{t}.SA" if re.fullmatch(r"[A-Z0-9]{4}\d{1,2}[A-Z]?", t) else t
 
 
+# Criptos em reais: BTC-BRL, SOL-BRL... são montados a partir do par em dólar (mais líquido e com histórico
+# completo no Yahoo) multiplicado pelo câmbio USD/BRL. Pares em dólar (BTC-USD) vão direto.
+CRIPTO = re.compile(r"^([A-Z0-9]+)-(BRL|USD|USDT|EUR)$")
+FX = "BRL=X"
+
+
+def eh_cripto(ticker: str) -> bool:
+    return bool(CRIPTO.match(ticker.upper().strip()))
+
+
+def simbolo_usd(ticker: str) -> str | None:
+    """BTC-BRL -> BTC-USD (ou o símbolo resolvido na ingestão, ex.: HYPE32196-USD). None se não for cripto em BRL."""
+    m = CRIPTO.match(ticker.upper().strip())
+    if not m or m.group(2) != "BRL":
+        return None
+    try:
+        from .db import connect
+        with connect(readonly=True) as conn:
+            r = conn.execute("SELECT yahoo_symbol FROM criptos WHERE codigo=?", [m.group(1)]).fetchone()
+        if r and r["yahoo_symbol"]:
+            return r["yahoo_symbol"]
+    except Exception:
+        pass
+    return f"{m.group(1)}-USD"
+
+
+def _em_reais(hist: pd.DataFrame, period: str, interval: str) -> pd.DataFrame:
+    """Converte OHLC em dólar para reais usando o câmbio vigente em cada instante (último valor conhecido)."""
+    fx = yf.Ticker(FX).history(period=period, interval=interval if interval not in ("1m",) else "5m")["Close"].dropna()
+    if fx.empty:
+        raise LookupError("Sem cotação USD/BRL no Yahoo Finance")
+    fx.index = fx.index.tz_convert("UTC") if fx.index.tz is not None else fx.index.tz_localize("UTC")
+    idx = hist.index.tz_convert("UTC") if hist.index.tz is not None else hist.index.tz_localize("UTC")
+    taxa = fx.reindex(fx.index.union(idx)).sort_index().ffill().bfill().reindex(idx)
+    hist = hist.copy()
+    for c in ("Open", "High", "Low", "Close"):
+        hist[c] = hist[c].to_numpy() * taxa.to_numpy()
+    return hist
+
+
+def history(ticker: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
+    """Histórico OHLCV do Yahoo (sem ajuste de proventos); cripto em BRL é convertida a partir do par em dólar."""
+    usd = simbolo_usd(ticker)
+    for tentativa in range(2):  # o Yahoo devolve vazio de vez em quando sob carga; uma nova tentativa resolve
+        hist = yf.Ticker(usd or yahoo_symbol(ticker)).history(period=period, interval=interval, auto_adjust=False)
+        if not hist.empty:
+            break
+        time.sleep(1)
+    if usd and not hist.empty:
+        hist = _em_reais(hist, period, interval)
+    return hist
+
+
 def _num(v):
     if v is None:
         return None
@@ -91,9 +144,10 @@ def ajustar_splits(hist: pd.DataFrame) -> tuple[pd.DataFrame, list]:
     return hist, eventos
 
 
-def metricas_preco(hist: pd.DataFrame, preco: float | None) -> dict:
-    """Retornos, risco e proventos a partir do histórico diário (2 anos)."""
-    hist, splits = ajustar_splits(hist)
+def metricas_preco(hist: pd.DataFrame, preco: float | None, ajustar: bool = True, dias_ano: int = 252) -> dict:
+    """Retornos, risco e proventos a partir do histórico diário (2 anos).
+    Cripto: ajustar=False (saltos de 60% num dia são reais) e dias_ano=365 (negocia todos os dias)."""
+    hist, splits = ajustar_splits(hist) if ajustar else (hist, [])
     close = hist["Close"].dropna()
     preco = preco or _num(close.iloc[-1])
     ref = close.index[-1]
@@ -116,14 +170,19 @@ def metricas_preco(hist: pd.DataFrame, preco: float | None) -> dict:
     ret_total = (float((1 + tot).prod()) - 1) * 100 if len(tot) and cobre(365) else None
 
     diarios = um_ano.pct_change().dropna()
-    vol = float(diarios.std()) * math.sqrt(252) * 100 if len(diarios) > 20 else None
+    vol = float(diarios.std()) * math.sqrt(dias_ano) * 100 if len(diarios) > 20 else None
     dd = float((um_ano / um_ano.cummax() - 1).min()) * 100 if len(um_ano) else None
 
     beta = corr = None
     try:
         ib = ibov_retornos()
-        d = diarios.copy()
-        d.index = d.index.tz_localize(None).normalize()
+        if dias_ano == 252:
+            d = diarios.copy()
+            d.index = d.index.tz_localize(None).normalize()
+        else:  # cripto: mede o retorno entre os mesmos pregões da B3 (fim de semana entra na segunda-feira)
+            c = um_ano.copy()
+            c.index = c.index.tz_localize(None).normalize()
+            d = c.reindex(ib.index, method="ffill").pct_change()
         j = pd.concat([d, ib], axis=1, join="inner").dropna()
         if len(j) > 30:
             cov = j.cov().iloc[0, 1]
@@ -296,8 +355,26 @@ def cotacao(ticker: str) -> dict:
     return _cache(("cot", ticker.upper()), lambda: _cotacao(ticker))
 
 
+MONETARIOS = ("preco", "variacao", "abertura", "maxima_dia", "minima_dia", "fechamento_anterior",
+              "max_52s", "min_52s", "media_50d", "media_200d", "valor_mercado")
+
+
 def _cotacao(ticker: str) -> dict:
     """Cotação e estatísticas em tempo real direto do Yahoo."""
+    usd = simbolo_usd(ticker)
+    if usd:  # cripto em reais = par em dólar x câmbio agora
+        out, fx = dict(cotacao(usd)), cotacao(FX)
+        taxa, taxa_ant = fx["preco"], fx.get("fechamento_anterior") or fx["preco"]
+        ant_usd = out.get("fechamento_anterior")
+        for k in MONETARIOS:
+            if out.get(k) is not None:
+                out[k] = out[k] * (taxa_ant if k == "fechamento_anterior" else taxa)
+        if ant_usd and out.get("preco"):
+            out["variacao"] = out["preco"] - out["fechamento_anterior"]
+            out["variacao_pct"] = (out["preco"] / out["fechamento_anterior"] - 1) * 100
+        out.update(ticker=ticker.upper(), moeda="BRL", ticker_usd=usd, cambio=taxa, nome=(out.get("nome") or "").removesuffix(" USD") or None,
+                   volume=(out.get("volume") or 0) * taxa or None, estado_mercado="REGULAR")
+        return out
     tk = yf.Ticker(yahoo_symbol(ticker))
     try:
         info = dict(tk.info or {})
@@ -345,10 +422,10 @@ def historico(ticker: str, period: str = "6mo", interval: str = "1d") -> list[di
 
 
 def _historico(ticker: str, period: str, interval: str) -> list[dict]:
-    hist = yf.Ticker(yahoo_symbol(ticker)).history(period=period, interval=interval, auto_adjust=False)
+    hist = history(ticker, period, interval)
     if hist.empty:
         raise LookupError(f"Sem histórico para {ticker}")
-    if interval in ("1d", "1wk", "1mo"):
+    if interval in ("1d", "1wk", "1mo") and not eh_cripto(ticker):
         hist, _ = ajustar_splits(hist)
     return [
         {

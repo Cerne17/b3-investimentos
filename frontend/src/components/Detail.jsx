@@ -42,15 +42,16 @@ export function LiveQuote({ ticker, compact }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-        <span className="price-big num">{fmt.brl(q.preco)}</span>
+        <span className="price-big num">{fmt.preco(q.preco)}</span>
         <span className={`num ${signClass(q.variacao_pct)}`} style={{ fontWeight: 600 }}>
           {q.variacao_pct > 0 ? '▲' : q.variacao_pct < 0 ? '▼' : ''} {signed(q.variacao_pct)} ({fmt.num(q.variacao)})
         </span>
-        <span className="badge">{q.estado_mercado === 'REGULAR' ? 'Mercado aberto' : 'Mercado fechado'}</span>
+        <span className="badge">{q.ticker_usd ? 'Mercado 24h' : q.estado_mercado === 'REGULAR' ? 'Mercado aberto' : 'Mercado fechado'}</span>
       </div>
       {!compact && (
         <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-          Abertura {fmt.brl(q.abertura)} · Mín {fmt.brl(q.minima_dia)} · Máx {fmt.brl(q.maxima_dia)} · Volume {fmt.big(q.volume, '')}
+          Abertura {fmt.preco(q.abertura)} · Mín {fmt.preco(q.minima_dia)} · Máx {fmt.preco(q.maxima_dia)} · Volume {fmt.big(q.volume, q.ticker_usd ? 'R$ ' : '')}
+          {q.ticker_usd && ` · ${q.ticker_usd} × US$ ${fmt.num(q.cambio, 4)}`}
           {q.horario && ` · ${new Date(q.horario).toLocaleString('pt-BR')}`} · Yahoo Finance
         </div>
       )}
@@ -82,7 +83,7 @@ export default function Detail({ tipo, codigo, onClose }) {
     try { setD(await api.atualizar(tipo, codigo)) } catch (e) { setErro(e.message) } finally { setAtualizando(false) }
   }
 
-  const ticker = d?.ticker || (tipo === 'acoes' ? codigo : `${codigo}11`)
+  const ticker = d?.ticker || (tipo === 'acoes' ? codigo : tipo === 'criptos' ? `${codigo}-BRL` : `${codigo}11`)
   const provs = (d?.proventos_recentes || []).slice(0, 24).reverse()
 
   return (
@@ -91,18 +92,18 @@ export default function Detail({ tipo, codigo, onClose }) {
       <aside className="drawer" role="dialog" aria-label={`Detalhes de ${codigo}`}>
         <div className="drawer-head">
           <div>
-            <div className="muted" style={{ fontSize: 12 }}>{tipo === 'fiis' ? 'Fundo imobiliário' : tipo === 'acoes' ? `Ação ${d?.tipo_acao || ''}` : 'ETF'} · {d?.categoria}{d?.segmento ? ` · ${d.segmento}` : ''}</div>
+            <div className="muted" style={{ fontSize: 12 }}>{tipo === 'fiis' ? 'Fundo imobiliário' : tipo === 'acoes' ? `Ação ${d?.tipo_acao || ''}` : tipo === 'criptos' ? `Cripto · #${d?.rank_mercado ?? '—'}` : 'ETF'} · {d?.categoria}{d?.segmento ? ` · ${d.segmento}` : ''}</div>
             <h1>{ticker}</h1>
             <div className="muted">{d?.razao_social}</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {!somenteLeitura && <button className="btn" onClick={atualizar} disabled={atualizando}>{atualizando ? 'Atualizando…' : 'Recoletar'}</button>}
+            {!somenteLeitura && tipo !== 'criptos' && <button className="btn" onClick={atualizar} disabled={atualizando}>{atualizando ? 'Atualizando…' : 'Recoletar'}</button>}
             <button className="btn" onClick={onClose} aria-label="Fechar">✕</button>
           </div>
         </div>
         {erro && <div className="alert">{erro}</div>}
         {d?.alerta && <div className="alert">⚠ {d.alerta}</div>}
-        {d && d.status !== 'ok' && <div className="alert">Sem cotação no Yahoo Finance — o fundo pode não ser negociado em bolsa.</div>}
+        {d && d.status !== 'ok' && <div className="alert">{tipo === 'criptos' ? 'Sem histórico no Yahoo Finance — mostrando só os dados do CoinGecko.' : 'Sem cotação no Yahoo Finance — o fundo pode não ser negociado em bolsa.'}</div>}
 
         {d?.status === 'ok' && (
           <>

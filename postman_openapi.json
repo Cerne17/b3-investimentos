@@ -1,1923 +1,2484 @@
 {
- "openapi": "3.1.0",
- "info": {
-  "title": "B3 Fundos API",
-  "description": "API para consultar métricas de **ETFs** e **FIIs** listados na B3.\n\n* Base local SQLite alimentada pelos arquivos `etfsListados.csv` e `fundosListados.csv`, Yahoo Finance (preço, retornos, risco, proventos) e informe mensal da CVM (VP/cota, PL, cotistas, segmento, carteira).\n* **Filtros dinâmicos:** toda coluna numérica aceita `min_<coluna>` e `max_<coluna>` (ex.: `min_dividend_yield=10&max_pvp=0.9&min_liquidez_media=1000000`). Veja `GET /api/metricas`.\n* Para usar no Postman: *Import → Link* com `http://localhost:8000/openapi.json`.",
-  "version": "1.0.0"
- },
- "paths": {
-  "/api/etfs": {
-   "get": {
-    "tags": [
-     "ETFs"
-    ],
-    "summary": "Lista/filtra ETFs",
-    "description": "Qualquer outra coluna numérica também aceita `min_<coluna>` / `max_<coluna>`\n(ex.: `max_beta_ibov=0.5`, `min_sharpe_12m=0`).",
-    "operationId": "listar_etfs_api_etfs_get",
-    "parameters": [
-     {
-      "name": "busca",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Texto no código, ticker, razão social ou nome de pregão",
-       "title": "Busca"
-      },
-      "description": "Texto no código, ticker, razão social ou nome de pregão"
-     },
-     {
-      "name": "categoria",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Ações Brasil | Internacional | Renda Fixa | Cripto | Commodities",
-       "title": "Categoria"
-      },
-      "description": "Ações Brasil | Internacional | Renda Fixa | Cripto | Commodities"
-     },
-     {
-      "name": "min_pl",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "P/L mínimo",
-       "title": "Min Pl"
-      },
-      "description": "P/L mínimo"
-     },
-     {
-      "name": "max_pl",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "P/L máximo",
-       "title": "Max Pl"
-      },
-      "description": "P/L máximo"
-     },
-     {
-      "name": "min_dividend_yield",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "DY 12m mínimo (%)",
-       "title": "Min Dividend Yield"
-      },
-      "description": "DY 12m mínimo (%)"
-     },
-     {
-      "name": "min_retorno_12m",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Retorno 12m mínimo (%)",
-       "title": "Min Retorno 12M"
-      },
-      "description": "Retorno 12m mínimo (%)"
-     },
-     {
-      "name": "max_volatilidade_12m",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Volatilidade anualizada máxima (%)",
-       "title": "Max Volatilidade 12M"
-      },
-      "description": "Volatilidade anualizada máxima (%)"
-     },
-     {
-      "name": "min_liquidez_media",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Liquidez média diária mínima (R$)",
-       "title": "Min Liquidez Media"
-      },
-      "description": "Liquidez média diária mínima (R$)"
-     },
-     {
-      "name": "somente_com_dados",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "boolean",
-       "default": true,
-       "title": "Somente Com Dados"
-      }
-     },
-     {
-      "name": "ordenar",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "string",
-       "description": "Coluna para ordenar (ver /api/metricas)",
-       "default": "liquidez_media",
-       "title": "Ordenar"
-      },
-      "description": "Coluna para ordenar (ver /api/metricas)"
-     },
-     {
-      "name": "ordem",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "enum": [
-        "asc",
-        "desc"
-       ],
-       "type": "string",
-       "default": "desc",
-       "title": "Ordem"
-      }
-     },
-     {
-      "name": "limite",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "maximum": 1000,
-       "minimum": 1,
-       "default": 50,
-       "title": "Limite"
-      }
-     },
-     {
-      "name": "offset",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "minimum": 0,
-       "default": 0,
-       "title": "Offset"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/etfs/{codigo}": {
-   "get": {
-    "tags": [
-     "ETFs"
-    ],
-    "summary": "Detalhe de um ETF",
-    "operationId": "obter_etf_api_etfs__codigo__get",
-    "parameters": [
-     {
-      "name": "codigo",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "BOVA11"
-       ],
-       "title": "Codigo"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/fiis": {
-   "get": {
-    "tags": [
-     "FIIs"
-    ],
-    "summary": "Lista/filtra FIIs",
-    "description": "Qualquer outra coluna numérica também aceita `min_<coluna>` / `max_<coluna>`\n(ex.: `min_num_proventos_12m=12`, `max_taxa_adm_anual=1`, `min_pct_imoveis=80`).",
-    "operationId": "listar_fiis_api_fiis_get",
-    "parameters": [
-     {
-      "name": "busca",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Texto no código, ticker, razão social ou nome de pregão",
-       "title": "Busca"
-      },
-      "description": "Texto no código, ticker, razão social ou nome de pregão"
-     },
-     {
-      "name": "categoria",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Tijolo | Papel | FoF | Híbrido",
-       "title": "Categoria"
-      },
-      "description": "Tijolo | Papel | FoF | Híbrido"
-     },
-     {
-      "name": "segmento",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Segmento CVM: Logística, Shoppings, Escritórios... (ver /api/fiis/valores/segmento)",
-       "title": "Segmento"
-      },
-      "description": "Segmento CVM: Logística, Shoppings, Escritórios... (ver /api/fiis/valores/segmento)"
-     },
-     {
-      "name": "min_dividend_yield",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "DY 12m mínimo (%)",
-       "title": "Min Dividend Yield"
-      },
-      "description": "DY 12m mínimo (%)"
-     },
-     {
-      "name": "max_dividend_yield",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "DY 12m máximo (%)",
-       "title": "Max Dividend Yield"
-      },
-      "description": "DY 12m máximo (%)"
-     },
-     {
-      "name": "min_pvp",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "P/VP mínimo",
-       "title": "Min Pvp"
-      },
-      "description": "P/VP mínimo"
-     },
-     {
-      "name": "max_pvp",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "P/VP máximo",
-       "title": "Max Pvp"
-      },
-      "description": "P/VP máximo"
-     },
-     {
-      "name": "min_liquidez_media",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Liquidez média diária mínima (R$)",
-       "title": "Min Liquidez Media"
-      },
-      "description": "Liquidez média diária mínima (R$)"
-     },
-     {
-      "name": "min_patrimonio_liquido",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Patrimônio líquido mínimo (R$)",
-       "title": "Min Patrimonio Liquido"
-      },
-      "description": "Patrimônio líquido mínimo (R$)"
-     },
-     {
-      "name": "min_cotistas",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Número mínimo de cotistas",
-       "title": "Min Cotistas"
-      },
-      "description": "Número mínimo de cotistas"
-     },
-     {
-      "name": "max_alavancagem",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Alavancagem máxima (% passivo/ativo)",
-       "title": "Max Alavancagem"
-      },
-      "description": "Alavancagem máxima (% passivo/ativo)"
-     },
-     {
-      "name": "somente_com_dados",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "boolean",
-       "default": true,
-       "title": "Somente Com Dados"
-      }
-     },
-     {
-      "name": "ordenar",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "string",
-       "description": "Coluna para ordenar (ver /api/metricas)",
-       "default": "dividend_yield",
-       "title": "Ordenar"
-      },
-      "description": "Coluna para ordenar (ver /api/metricas)"
-     },
-     {
-      "name": "ordem",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "enum": [
-        "asc",
-        "desc"
-       ],
-       "type": "string",
-       "default": "desc",
-       "title": "Ordem"
-      }
-     },
-     {
-      "name": "limite",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "maximum": 1000,
-       "minimum": 1,
-       "default": 50,
-       "title": "Limite"
-      }
-     },
-     {
-      "name": "offset",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "minimum": 0,
-       "default": 0,
-       "title": "Offset"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/fiis/{codigo}": {
-   "get": {
-    "tags": [
-     "FIIs"
-    ],
-    "summary": "Detalhe de um FII",
-    "operationId": "obter_fii_api_fiis__codigo__get",
-    "parameters": [
-     {
-      "name": "codigo",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "HGLG11"
-       ],
-       "title": "Codigo"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/acoes": {
-   "get": {
-    "tags": [
-     "Ações"
-    ],
-    "summary": "Lista/filtra ações",
-    "description": "Qualquer coluna numérica aceita `min_<coluna>` / `max_<coluna>`\n(ex.: `min_margem_liquida=10`, `max_ev_ebitda=6`, `min_crescimento_receita=0`).",
-    "operationId": "listar_acoes_api_acoes_get",
-    "parameters": [
-     {
-      "name": "busca",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Ticker, empresa ou nome",
-       "title": "Busca"
-      },
-      "description": "Ticker, empresa ou nome"
-     },
-     {
-      "name": "categoria",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Setor CVM (ver /api/acoes/valores/categoria)",
-       "title": "Categoria"
-      },
-      "description": "Setor CVM (ver /api/acoes/valores/categoria)"
-     },
-     {
-      "name": "segmento",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Segmento de listagem: Novo Mercado, Nível 1/2 de Governança, Básico...",
-       "title": "Segmento"
-      },
-      "description": "Segmento de listagem: Novo Mercado, Nível 1/2 de Governança, Básico..."
-     },
-     {
-      "name": "min_dividend_yield",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "DY 12m mínimo (%)",
-       "title": "Min Dividend Yield"
-      },
-      "description": "DY 12m mínimo (%)"
-     },
-     {
-      "name": "max_pl",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "P/L máximo",
-       "title": "Max Pl"
-      },
-      "description": "P/L máximo"
-     },
-     {
-      "name": "max_pvp",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "P/VP máximo",
-       "title": "Max Pvp"
-      },
-      "description": "P/VP máximo"
-     },
-     {
-      "name": "min_roe",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "ROE mínimo (%)",
-       "title": "Min Roe"
-      },
-      "description": "ROE mínimo (%)"
-     },
-     {
-      "name": "max_div_liq_ebitda",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Dívida líquida / EBITDA máxima",
-       "title": "Max Div Liq Ebitda"
-      },
-      "description": "Dívida líquida / EBITDA máxima"
-     },
-     {
-      "name": "min_margem_graham",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Desconto mínimo frente ao valor de Graham (%)",
-       "title": "Min Margem Graham"
-      },
-      "description": "Desconto mínimo frente ao valor de Graham (%)"
-     },
-     {
-      "name": "min_liquidez_media",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Liquidez média diária mínima (R$)",
-       "title": "Min Liquidez Media"
-      },
-      "description": "Liquidez média diária mínima (R$)"
-     },
-     {
-      "name": "somente_com_dados",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "boolean",
-       "default": true,
-       "title": "Somente Com Dados"
-      }
-     },
-     {
-      "name": "ordenar",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "string",
-       "description": "Coluna para ordenar (ver /api/metricas)",
-       "default": "liquidez_media",
-       "title": "Ordenar"
-      },
-      "description": "Coluna para ordenar (ver /api/metricas)"
-     },
-     {
-      "name": "ordem",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "enum": [
-        "asc",
-        "desc"
-       ],
-       "type": "string",
-       "default": "desc",
-       "title": "Ordem"
-      }
-     },
-     {
-      "name": "limite",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "maximum": 1000,
-       "minimum": 1,
-       "default": 50,
-       "title": "Limite"
-      }
-     },
-     {
-      "name": "offset",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "minimum": 0,
-       "default": 0,
-       "title": "Offset"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/acoes/{codigo}": {
-   "get": {
-    "tags": [
-     "Ações"
-    ],
-    "summary": "Detalhe de uma ação",
-    "operationId": "obter_acao_api_acoes__codigo__get",
-    "parameters": [
-     {
-      "name": "codigo",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "PETR4"
-       ],
-       "title": "Codigo"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/{tipo}/valores/{coluna}": {
-   "get": {
-    "tags": [
-     "Análises"
-    ],
-    "summary": "Valores distintos de uma coluna de texto",
-    "operationId": "valores_api__tipo__valores__coluna__get",
-    "parameters": [
-     {
-      "name": "tipo",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "enum": [
-        "etfs",
-        "fiis",
-        "acoes"
-       ],
-       "type": "string",
-       "title": "Tipo"
-      }
-     },
-     {
-      "name": "coluna",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "categoria",
-        "segmento",
-        "administrador"
-       ],
-       "title": "Coluna"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/proventos/{codigo}": {
-   "get": {
-    "tags": [
-     "Análises"
-    ],
-    "summary": "Histórico de proventos (ETF ou FII)",
-    "operationId": "listar_proventos_api_proventos__codigo__get",
-    "parameters": [
-     {
-      "name": "codigo",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "HGLG11"
-       ],
-       "title": "Codigo"
-      }
-     },
-     {
-      "name": "limite",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "maximum": 1000,
-       "default": 120,
-       "title": "Limite"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/metricas": {
-   "get": {
-    "tags": [
-     "Análises"
-    ],
-    "summary": "Dicionário de colunas/métricas",
-    "operationId": "metricas_api_metricas_get",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/resumo": {
-   "get": {
-    "tags": [
-     "Análises"
-    ],
-    "summary": "Visão geral com estatísticas por categoria",
-    "operationId": "resumo_api_resumo_get",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/ranking/{tipo}/{metrica}": {
-   "get": {
-    "tags": [
-     "Análises"
-    ],
-    "summary": "Top N por uma métrica",
-    "operationId": "ranking_api_ranking__tipo___metrica__get",
-    "parameters": [
-     {
-      "name": "tipo",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "enum": [
-        "etfs",
-        "fiis",
-        "acoes"
-       ],
-       "type": "string",
-       "title": "Tipo"
-      }
-     },
-     {
-      "name": "metrica",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "dividend_yield"
-       ],
-       "title": "Metrica"
-      }
-     },
-     {
-      "name": "n",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "maximum": 100,
-       "minimum": 1,
-       "default": 10,
-       "title": "N"
-      }
-     },
-     {
-      "name": "ordem",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "enum": [
-        "asc",
-        "desc"
-       ],
-       "type": "string",
-       "default": "desc",
-       "title": "Ordem"
-      }
-     },
-     {
-      "name": "categoria",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "title": "Categoria"
-      }
-     },
-     {
-      "name": "min_liquidez_media",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "number"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Ignora ativos com pouca liquidez",
-       "title": "Min Liquidez Media"
-      },
-      "description": "Ignora ativos com pouca liquidez"
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/comparar": {
-   "get": {
-    "tags": [
-     "Análises"
-    ],
-    "summary": "Compara ativos lado a lado",
-    "operationId": "comparar_api_comparar_get",
-    "parameters": [
-     {
-      "name": "codigos",
-      "in": "query",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "description": "Separados por vírgula",
-       "examples": [
-        "HGLG11,KNRI11,BOVA11"
-       ],
-       "title": "Codigos"
-      },
-      "description": "Separados por vírgula"
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/sql": {
-   "post": {
-    "tags": [
-     "Análises"
-    ],
-    "summary": "SQL livre (somente SELECT)",
-    "description": "Tabelas: `etfs`, `fundos`, `proventos` e a view `ativos` (ETFs + FIIs com colunas comuns).",
-    "operationId": "sql_api_sql_post",
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/ConsultaSQL"
-       }
-      }
-     },
-     "required": true
+    "openapi": "3.1.0",
+    "info": {
+        "title": "B3 Fundos API",
+        "description": "API para consultar m\u00e9tricas de **ETFs** e **FIIs** listados na B3.\n\n* Base local SQLite alimentada pelos arquivos `etfsListados.csv` e `fundosListados.csv`, Yahoo Finance (pre\u00e7o, retornos, risco, proventos) e informe mensal da CVM (VP/cota, PL, cotistas, segmento, carteira).\n* **Filtros din\u00e2micos:** toda coluna num\u00e9rica aceita `min_<coluna>` e `max_<coluna>` (ex.: `min_dividend_yield=10&max_pvp=0.9&min_liquidez_media=1000000`). Veja `GET /api/metricas`.\n* Para usar no Postman: *Import \u2192 Link* com `http://localhost:8000/openapi.json`.",
+        "version": "1.0.0"
     },
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+    "paths": {
+        "/api/etfs": {
+            "get": {
+                "tags": [
+                    "ETFs"
+                ],
+                "summary": "Lista/filtra ETFs",
+                "description": "Qualquer outra coluna num\u00e9rica tamb\u00e9m aceita `min_<coluna>` / `max_<coluna>`\n(ex.: `max_beta_ibov=0.5`, `min_sharpe_12m=0`).",
+                "operationId": "listar_etfs_api_etfs_get",
+                "parameters": [
+                    {
+                        "name": "busca",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Texto no c\u00f3digo, ticker, raz\u00e3o social ou nome de preg\u00e3o",
+                            "title": "Busca"
+                        },
+                        "description": "Texto no c\u00f3digo, ticker, raz\u00e3o social ou nome de preg\u00e3o"
+                    },
+                    {
+                        "name": "categoria",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "A\u00e7\u00f5es Brasil | Internacional | Renda Fixa | Cripto | Commodities",
+                            "title": "Categoria"
+                        },
+                        "description": "A\u00e7\u00f5es Brasil | Internacional | Renda Fixa | Cripto | Commodities"
+                    },
+                    {
+                        "name": "min_pl",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "P/L m\u00ednimo",
+                            "title": "Min Pl"
+                        },
+                        "description": "P/L m\u00ednimo"
+                    },
+                    {
+                        "name": "max_pl",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "P/L m\u00e1ximo",
+                            "title": "Max Pl"
+                        },
+                        "description": "P/L m\u00e1ximo"
+                    },
+                    {
+                        "name": "min_dividend_yield",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "DY 12m m\u00ednimo (%)",
+                            "title": "Min Dividend Yield"
+                        },
+                        "description": "DY 12m m\u00ednimo (%)"
+                    },
+                    {
+                        "name": "min_retorno_12m",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Retorno 12m m\u00ednimo (%)",
+                            "title": "Min Retorno 12M"
+                        },
+                        "description": "Retorno 12m m\u00ednimo (%)"
+                    },
+                    {
+                        "name": "max_volatilidade_12m",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Volatilidade anualizada m\u00e1xima (%)",
+                            "title": "Max Volatilidade 12M"
+                        },
+                        "description": "Volatilidade anualizada m\u00e1xima (%)"
+                    },
+                    {
+                        "name": "min_liquidez_media",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Liquidez m\u00e9dia di\u00e1ria m\u00ednima (R$)",
+                            "title": "Min Liquidez Media"
+                        },
+                        "description": "Liquidez m\u00e9dia di\u00e1ria m\u00ednima (R$)"
+                    },
+                    {
+                        "name": "somente_com_dados",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true,
+                            "title": "Somente Com Dados"
+                        }
+                    },
+                    {
+                        "name": "ordenar",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Coluna para ordenar (ver /api/metricas)",
+                            "default": "liquidez_media",
+                            "title": "Ordenar"
+                        },
+                        "description": "Coluna para ordenar (ver /api/metricas)"
+                    },
+                    {
+                        "name": "ordem",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "asc",
+                                "desc"
+                            ],
+                            "type": "string",
+                            "default": "desc",
+                            "title": "Ordem"
+                        }
+                    },
+                    {
+                        "name": "limite",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "default": 50,
+                            "title": "Limite"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0,
+                            "title": "Offset"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/etfs/{codigo}": {
+            "get": {
+                "tags": [
+                    "ETFs"
+                ],
+                "summary": "Detalhe de um ETF",
+                "operationId": "obter_etf_api_etfs__codigo__get",
+                "parameters": [
+                    {
+                        "name": "codigo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "BOVA11"
+                            ],
+                            "title": "Codigo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/fiis": {
+            "get": {
+                "tags": [
+                    "FIIs"
+                ],
+                "summary": "Lista/filtra FIIs",
+                "description": "Qualquer outra coluna num\u00e9rica tamb\u00e9m aceita `min_<coluna>` / `max_<coluna>`\n(ex.: `min_num_proventos_12m=12`, `max_taxa_adm_anual=1`, `min_pct_imoveis=80`).",
+                "operationId": "listar_fiis_api_fiis_get",
+                "parameters": [
+                    {
+                        "name": "busca",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Texto no c\u00f3digo, ticker, raz\u00e3o social ou nome de preg\u00e3o",
+                            "title": "Busca"
+                        },
+                        "description": "Texto no c\u00f3digo, ticker, raz\u00e3o social ou nome de preg\u00e3o"
+                    },
+                    {
+                        "name": "categoria",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Tijolo | Papel | FoF | H\u00edbrido",
+                            "title": "Categoria"
+                        },
+                        "description": "Tijolo | Papel | FoF | H\u00edbrido"
+                    },
+                    {
+                        "name": "segmento",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Segmento CVM: Log\u00edstica, Shoppings, Escrit\u00f3rios... (ver /api/fiis/valores/segmento)",
+                            "title": "Segmento"
+                        },
+                        "description": "Segmento CVM: Log\u00edstica, Shoppings, Escrit\u00f3rios... (ver /api/fiis/valores/segmento)"
+                    },
+                    {
+                        "name": "min_dividend_yield",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "DY 12m m\u00ednimo (%)",
+                            "title": "Min Dividend Yield"
+                        },
+                        "description": "DY 12m m\u00ednimo (%)"
+                    },
+                    {
+                        "name": "max_dividend_yield",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "DY 12m m\u00e1ximo (%)",
+                            "title": "Max Dividend Yield"
+                        },
+                        "description": "DY 12m m\u00e1ximo (%)"
+                    },
+                    {
+                        "name": "min_pvp",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "P/VP m\u00ednimo",
+                            "title": "Min Pvp"
+                        },
+                        "description": "P/VP m\u00ednimo"
+                    },
+                    {
+                        "name": "max_pvp",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "P/VP m\u00e1ximo",
+                            "title": "Max Pvp"
+                        },
+                        "description": "P/VP m\u00e1ximo"
+                    },
+                    {
+                        "name": "min_liquidez_media",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Liquidez m\u00e9dia di\u00e1ria m\u00ednima (R$)",
+                            "title": "Min Liquidez Media"
+                        },
+                        "description": "Liquidez m\u00e9dia di\u00e1ria m\u00ednima (R$)"
+                    },
+                    {
+                        "name": "min_patrimonio_liquido",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Patrim\u00f4nio l\u00edquido m\u00ednimo (R$)",
+                            "title": "Min Patrimonio Liquido"
+                        },
+                        "description": "Patrim\u00f4nio l\u00edquido m\u00ednimo (R$)"
+                    },
+                    {
+                        "name": "min_cotistas",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "N\u00famero m\u00ednimo de cotistas",
+                            "title": "Min Cotistas"
+                        },
+                        "description": "N\u00famero m\u00ednimo de cotistas"
+                    },
+                    {
+                        "name": "max_alavancagem",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Alavancagem m\u00e1xima (% passivo/ativo)",
+                            "title": "Max Alavancagem"
+                        },
+                        "description": "Alavancagem m\u00e1xima (% passivo/ativo)"
+                    },
+                    {
+                        "name": "somente_com_dados",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true,
+                            "title": "Somente Com Dados"
+                        }
+                    },
+                    {
+                        "name": "ordenar",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Coluna para ordenar (ver /api/metricas)",
+                            "default": "dividend_yield",
+                            "title": "Ordenar"
+                        },
+                        "description": "Coluna para ordenar (ver /api/metricas)"
+                    },
+                    {
+                        "name": "ordem",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "asc",
+                                "desc"
+                            ],
+                            "type": "string",
+                            "default": "desc",
+                            "title": "Ordem"
+                        }
+                    },
+                    {
+                        "name": "limite",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "default": 50,
+                            "title": "Limite"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0,
+                            "title": "Offset"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/fiis/{codigo}": {
+            "get": {
+                "tags": [
+                    "FIIs"
+                ],
+                "summary": "Detalhe de um FII",
+                "operationId": "obter_fii_api_fiis__codigo__get",
+                "parameters": [
+                    {
+                        "name": "codigo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "HGLG11"
+                            ],
+                            "title": "Codigo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/acoes": {
+            "get": {
+                "tags": [
+                    "A\u00e7\u00f5es"
+                ],
+                "summary": "Lista/filtra a\u00e7\u00f5es",
+                "description": "Qualquer coluna num\u00e9rica aceita `min_<coluna>` / `max_<coluna>`\n(ex.: `min_margem_liquida=10`, `max_ev_ebitda=6`, `min_crescimento_receita=0`).",
+                "operationId": "listar_acoes_api_acoes_get",
+                "parameters": [
+                    {
+                        "name": "busca",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Ticker, empresa ou nome",
+                            "title": "Busca"
+                        },
+                        "description": "Ticker, empresa ou nome"
+                    },
+                    {
+                        "name": "categoria",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Setor CVM (ver /api/acoes/valores/categoria)",
+                            "title": "Categoria"
+                        },
+                        "description": "Setor CVM (ver /api/acoes/valores/categoria)"
+                    },
+                    {
+                        "name": "segmento",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Segmento de listagem: Novo Mercado, N\u00edvel 1/2 de Governan\u00e7a, B\u00e1sico...",
+                            "title": "Segmento"
+                        },
+                        "description": "Segmento de listagem: Novo Mercado, N\u00edvel 1/2 de Governan\u00e7a, B\u00e1sico..."
+                    },
+                    {
+                        "name": "min_dividend_yield",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "DY 12m m\u00ednimo (%)",
+                            "title": "Min Dividend Yield"
+                        },
+                        "description": "DY 12m m\u00ednimo (%)"
+                    },
+                    {
+                        "name": "max_pl",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "P/L m\u00e1ximo",
+                            "title": "Max Pl"
+                        },
+                        "description": "P/L m\u00e1ximo"
+                    },
+                    {
+                        "name": "max_pvp",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "P/VP m\u00e1ximo",
+                            "title": "Max Pvp"
+                        },
+                        "description": "P/VP m\u00e1ximo"
+                    },
+                    {
+                        "name": "min_roe",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "ROE m\u00ednimo (%)",
+                            "title": "Min Roe"
+                        },
+                        "description": "ROE m\u00ednimo (%)"
+                    },
+                    {
+                        "name": "max_div_liq_ebitda",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "D\u00edvida l\u00edquida / EBITDA m\u00e1xima",
+                            "title": "Max Div Liq Ebitda"
+                        },
+                        "description": "D\u00edvida l\u00edquida / EBITDA m\u00e1xima"
+                    },
+                    {
+                        "name": "min_margem_graham",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Desconto m\u00ednimo frente ao valor de Graham (%)",
+                            "title": "Min Margem Graham"
+                        },
+                        "description": "Desconto m\u00ednimo frente ao valor de Graham (%)"
+                    },
+                    {
+                        "name": "min_liquidez_media",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Liquidez m\u00e9dia di\u00e1ria m\u00ednima (R$)",
+                            "title": "Min Liquidez Media"
+                        },
+                        "description": "Liquidez m\u00e9dia di\u00e1ria m\u00ednima (R$)"
+                    },
+                    {
+                        "name": "somente_com_dados",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true,
+                            "title": "Somente Com Dados"
+                        }
+                    },
+                    {
+                        "name": "ordenar",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Coluna para ordenar (ver /api/metricas)",
+                            "default": "liquidez_media",
+                            "title": "Ordenar"
+                        },
+                        "description": "Coluna para ordenar (ver /api/metricas)"
+                    },
+                    {
+                        "name": "ordem",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "asc",
+                                "desc"
+                            ],
+                            "type": "string",
+                            "default": "desc",
+                            "title": "Ordem"
+                        }
+                    },
+                    {
+                        "name": "limite",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "default": 50,
+                            "title": "Limite"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0,
+                            "title": "Offset"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/acoes/{codigo}": {
+            "get": {
+                "tags": [
+                    "A\u00e7\u00f5es"
+                ],
+                "summary": "Detalhe de uma a\u00e7\u00e3o",
+                "operationId": "obter_acao_api_acoes__codigo__get",
+                "parameters": [
+                    {
+                        "name": "codigo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "PETR4"
+                            ],
+                            "title": "Codigo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/criptos": {
+            "get": {
+                "tags": [
+                    "Criptomoedas"
+                ],
+                "summary": "Lista/filtra criptomoedas",
+                "description": "Pre\u00e7os e m\u00e9tricas em **reais** (par em d\u00f3lar x c\u00e2mbio do dia; anualiza\u00e7\u00e3o com 365 dias).\nQualquer coluna num\u00e9rica aceita `min_<coluna>` / `max_<coluna>` (ex.: `min_mcap_fdv=80`, `max_correlacao_btc=0.5`).",
+                "operationId": "listar_criptos_api_criptos_get",
+                "parameters": [
+                    {
+                        "name": "busca",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "S\u00edmbolo ou nome",
+                            "title": "Busca"
+                        },
+                        "description": "S\u00edmbolo ou nome"
+                    },
+                    {
+                        "name": "categoria",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Stablecoin, Plataforma (L1), DeFi, Meme... (ver /api/criptos/valores/categoria)",
+                            "title": "Categoria"
+                        },
+                        "description": "Stablecoin, Plataforma (L1), DeFi, Meme... (ver /api/criptos/valores/categoria)"
+                    },
+                    {
+                        "name": "excluir_categoria",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Ex.: Stablecoin",
+                            "title": "Excluir Categoria"
+                        },
+                        "description": "Ex.: Stablecoin"
+                    },
+                    {
+                        "name": "max_rank_mercado",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "S\u00f3 as N maiores por valor de mercado",
+                            "title": "Max Rank Mercado"
+                        },
+                        "description": "S\u00f3 as N maiores por valor de mercado"
+                    },
+                    {
+                        "name": "min_liquidez_media",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Volume 24h m\u00ednimo (R$)",
+                            "title": "Min Liquidez Media"
+                        },
+                        "description": "Volume 24h m\u00ednimo (R$)"
+                    },
+                    {
+                        "name": "max_volatilidade_12m",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Volatilidade anual m\u00e1xima (%)",
+                            "title": "Max Volatilidade 12M"
+                        },
+                        "description": "Volatilidade anual m\u00e1xima (%)"
+                    },
+                    {
+                        "name": "somente_com_dados",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true,
+                            "title": "Somente Com Dados"
+                        }
+                    },
+                    {
+                        "name": "ordenar",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Coluna para ordenar (ver /api/metricas)",
+                            "default": "valor_mercado",
+                            "title": "Ordenar"
+                        },
+                        "description": "Coluna para ordenar (ver /api/metricas)"
+                    },
+                    {
+                        "name": "ordem",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "asc",
+                                "desc"
+                            ],
+                            "type": "string",
+                            "default": "desc",
+                            "title": "Ordem"
+                        }
+                    },
+                    {
+                        "name": "limite",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "default": 50,
+                            "title": "Limite"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0,
+                            "title": "Offset"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/criptos/{codigo}": {
+            "get": {
+                "tags": [
+                    "Criptomoedas"
+                ],
+                "summary": "Detalhe de uma criptomoeda",
+                "operationId": "obter_cripto_api_criptos__codigo__get",
+                "parameters": [
+                    {
+                        "name": "codigo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "BTC"
+                            ],
+                            "title": "Codigo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/{tipo}/valores/{coluna}": {
+            "get": {
+                "tags": [
+                    "An\u00e1lises"
+                ],
+                "summary": "Valores distintos de uma coluna de texto",
+                "operationId": "valores_api__tipo__valores__coluna__get",
+                "parameters": [
+                    {
+                        "name": "tipo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "enum": [
+                                "etfs",
+                                "fiis",
+                                "acoes",
+                                "criptos"
+                            ],
+                            "type": "string",
+                            "title": "Tipo"
+                        }
+                    },
+                    {
+                        "name": "coluna",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "categoria",
+                                "segmento",
+                                "administrador"
+                            ],
+                            "title": "Coluna"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/proventos/{codigo}": {
+            "get": {
+                "tags": [
+                    "An\u00e1lises"
+                ],
+                "summary": "Hist\u00f3rico de proventos (ETF ou FII)",
+                "operationId": "listar_proventos_api_proventos__codigo__get",
+                "parameters": [
+                    {
+                        "name": "codigo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "HGLG11"
+                            ],
+                            "title": "Codigo"
+                        }
+                    },
+                    {
+                        "name": "limite",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "default": 120,
+                            "title": "Limite"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/metricas": {
+            "get": {
+                "tags": [
+                    "An\u00e1lises"
+                ],
+                "summary": "Dicion\u00e1rio de colunas/m\u00e9tricas",
+                "operationId": "metricas_api_metricas_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/resumo": {
+            "get": {
+                "tags": [
+                    "An\u00e1lises"
+                ],
+                "summary": "Vis\u00e3o geral com estat\u00edsticas por categoria",
+                "operationId": "resumo_api_resumo_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ranking/{tipo}/{metrica}": {
+            "get": {
+                "tags": [
+                    "An\u00e1lises"
+                ],
+                "summary": "Top N por uma m\u00e9trica",
+                "operationId": "ranking_api_ranking__tipo___metrica__get",
+                "parameters": [
+                    {
+                        "name": "tipo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "enum": [
+                                "etfs",
+                                "fiis",
+                                "acoes",
+                                "criptos"
+                            ],
+                            "type": "string",
+                            "title": "Tipo"
+                        }
+                    },
+                    {
+                        "name": "metrica",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "dividend_yield"
+                            ],
+                            "title": "Metrica"
+                        }
+                    },
+                    {
+                        "name": "n",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "default": 10,
+                            "title": "N"
+                        }
+                    },
+                    {
+                        "name": "ordem",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "asc",
+                                "desc"
+                            ],
+                            "type": "string",
+                            "default": "desc",
+                            "title": "Ordem"
+                        }
+                    },
+                    {
+                        "name": "categoria",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Categoria"
+                        }
+                    },
+                    {
+                        "name": "min_liquidez_media",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Ignora ativos com pouca liquidez",
+                            "title": "Min Liquidez Media"
+                        },
+                        "description": "Ignora ativos com pouca liquidez"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/comparar": {
+            "get": {
+                "tags": [
+                    "An\u00e1lises"
+                ],
+                "summary": "Compara ativos lado a lado",
+                "operationId": "comparar_api_comparar_get",
+                "parameters": [
+                    {
+                        "name": "codigos",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "description": "Separados por v\u00edrgula",
+                            "examples": [
+                                "HGLG11,KNRI11,BOVA11"
+                            ],
+                            "title": "Codigos"
+                        },
+                        "description": "Separados por v\u00edrgula"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/sql": {
+            "post": {
+                "tags": [
+                    "An\u00e1lises"
+                ],
+                "summary": "SQL livre (somente SELECT)",
+                "description": "Tabelas: `etfs`, `fundos`, `proventos` e a view `ativos` (ETFs + FIIs com colunas comuns).",
+                "operationId": "sql_api_sql_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConsultaSQL"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/busca": {
+            "get": {
+                "tags": [
+                    "An\u00e1lises"
+                ],
+                "summary": "Busca ETFs e FIIs (autocomplete)",
+                "operationId": "buscar_api_busca_get",
+                "parameters": [
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "examples": [
+                                "MXRF"
+                            ],
+                            "title": "Q"
+                        }
+                    },
+                    {
+                        "name": "limite",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 50,
+                            "default": 15,
+                            "title": "Limite"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/carteira/opcoes": {
+            "get": {
+                "tags": [
+                    "Carteira"
+                ],
+                "summary": "Indicadores e filosofias dispon\u00edveis",
+                "operationId": "opcoes_carteira_api_carteira_opcoes_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/carteira/otimizar": {
+            "post": {
+                "tags": [
+                    "Carteira"
+                ],
+                "summary": "Otimiza a carteira e calcula a aloca\u00e7\u00e3o em cotas",
+                "description": "Retornos di\u00e1rios totais (pre\u00e7o + proventos reinvestidos, ajustados por desdobramentos) no per\u00edodo escolhido.\nPara cada indicador retorna pesos \u00f3timos, m\u00e9tricas e a aloca\u00e7\u00e3o em **cotas inteiras ao pre\u00e7o atual**,\nal\u00e9m da carteira de pesos iguais, m\u00e9tricas individuais, correla\u00e7\u00e3o e fronteira eficiente.",
+                "operationId": "otimizar_carteira_api_carteira_otimizar_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PedidoCarteira"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/montecarlo/carteira": {
+            "post": {
+                "tags": [
+                    "Monte Carlo"
+                ],
+                "summary": "Simula o patrim\u00f4nio de uma carteira",
+                "description": "Faixas de percentis do patrim\u00f4nio m\u00eas a m\u00eas, distribui\u00e7\u00e3o final, probabilidade de perda e de bater a renda\nfixa, CAGR e drawdown por cen\u00e1rio. Com `meta`: probabilidade de atingi-la (no fim e ano a ano), m\u00eas mediano\nem que chega l\u00e1 e o aporte mensal necess\u00e1rio para 50/75/90% de chance.",
+                "operationId": "mc_carteira_api_montecarlo_carteira_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PedidoMCCarteira"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/montecarlo/ativo": {
+            "post": {
+                "tags": [
+                    "Monte Carlo"
+                ],
+                "summary": "Cone de pre\u00e7o de um ativo",
+                "description": "Percentis do pre\u00e7o ao longo do horizonte, chance de alta, de tocar os alvos de alta/queda, VaR/CVaR 95%.",
+                "operationId": "mc_ativo_api_montecarlo_ativo_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PedidoMCAtivo"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tempo-real/cotacao/{ticker}": {
+            "get": {
+                "tags": [
+                    "Tempo real"
+                ],
+                "summary": "Cota\u00e7\u00e3o e estat\u00edsticas ao vivo",
+                "operationId": "cotacao_api_tempo_real_cotacao__ticker__get",
+                "parameters": [
+                    {
+                        "name": "ticker",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "HGLG11"
+                            ],
+                            "title": "Ticker"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tempo-real/cotacoes": {
+            "get": {
+                "tags": [
+                    "Tempo real"
+                ],
+                "summary": "V\u00e1rias cota\u00e7\u00f5es de uma vez",
+                "operationId": "cotacoes_api_tempo_real_cotacoes_get",
+                "parameters": [
+                    {
+                        "name": "tickers",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "HGLG11,BOVA11,IVVB11"
+                            ],
+                            "title": "Tickers"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tempo-real/historico/{ticker}": {
+            "get": {
+                "tags": [
+                    "Tempo real"
+                ],
+                "summary": "Hist\u00f3rico de pre\u00e7os (OHLCV)",
+                "operationId": "historico_api_tempo_real_historico__ticker__get",
+                "parameters": [
+                    {
+                        "name": "ticker",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "BOVA11"
+                            ],
+                            "title": "Ticker"
+                        }
+                    },
+                    {
+                        "name": "periodo",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "1d",
+                                "5d",
+                                "1mo",
+                                "3mo",
+                                "6mo",
+                                "1y",
+                                "2y",
+                                "5y",
+                                "10y",
+                                "ytd",
+                                "max"
+                            ],
+                            "type": "string",
+                            "default": "6mo",
+                            "title": "Periodo"
+                        }
+                    },
+                    {
+                        "name": "intervalo",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "1m",
+                                "5m",
+                                "15m",
+                                "30m",
+                                "1h",
+                                "1d",
+                                "1wk",
+                                "1mo"
+                            ],
+                            "type": "string",
+                            "default": "1d",
+                            "title": "Intervalo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/atualizar/{tipo}/{codigo}": {
+            "post": {
+                "tags": [
+                    "Atualiza\u00e7\u00e3o"
+                ],
+                "summary": "Recoleta um ativo agora",
+                "operationId": "atualizar_um_api_atualizar__tipo___codigo__post",
+                "parameters": [
+                    {
+                        "name": "tipo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "enum": [
+                                "etfs",
+                                "fiis",
+                                "acoes"
+                            ],
+                            "type": "string",
+                            "title": "Tipo"
+                        }
+                    },
+                    {
+                        "name": "codigo",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "HGLG"
+                            ],
+                            "title": "Codigo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/atualizar": {
+            "post": {
+                "tags": [
+                    "Atualiza\u00e7\u00e3o"
+                ],
+                "summary": "Recoleta toda a base em background",
+                "operationId": "atualizar_tudo_api_atualizar_post",
+                "parameters": [
+                    {
+                        "name": "tipo",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "enum": [
+                                        "etfs",
+                                        "fiis",
+                                        "acoes"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Tipo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/atualizar/status": {
+            "get": {
+                "tags": [
+                    "Atualiza\u00e7\u00e3o"
+                ],
+                "summary": "Status da atualiza\u00e7\u00e3o em background",
+                "operationId": "status_atualizacao_api_atualizar_status_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
         }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/busca": {
-   "get": {
-    "tags": [
-     "Análises"
-    ],
-    "summary": "Busca ETFs e FIIs (autocomplete)",
-    "operationId": "buscar_api_busca_get",
-    "parameters": [
-     {
-      "name": "q",
-      "in": "query",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "minLength": 1,
-       "examples": [
-        "MXRF"
-       ],
-       "title": "Q"
-      }
-     },
-     {
-      "name": "limite",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "type": "integer",
-       "maximum": 50,
-       "default": 15,
-       "title": "Limite"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/carteira/opcoes": {
-   "get": {
-    "tags": [
-     "Carteira"
-    ],
-    "summary": "Indicadores e filosofias disponíveis",
-    "operationId": "opcoes_carteira_api_carteira_opcoes_get",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/carteira/otimizar": {
-   "post": {
-    "tags": [
-     "Carteira"
-    ],
-    "summary": "Otimiza a carteira e calcula a alocação em cotas",
-    "description": "Retornos diários totais (preço + proventos reinvestidos, ajustados por desdobramentos) no período escolhido.\nPara cada indicador retorna pesos ótimos, métricas e a alocação em **cotas inteiras ao preço atual**,\nalém da carteira de pesos iguais, métricas individuais, correlação e fronteira eficiente.",
-    "operationId": "otimizar_carteira_api_carteira_otimizar_post",
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/PedidoCarteira"
-       }
-      }
-     },
-     "required": true
     },
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+    "components": {
+        "schemas": {
+            "ConsultaSQL": {
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "title": "Query",
+                        "examples": [
+                            "SELECT segmento, COUNT(*) n, ROUND(AVG(dividend_yield),2) dy FROM fundos WHERE status='ok' GROUP BY segmento ORDER BY dy DESC"
+                        ]
+                    },
+                    "limite": {
+                        "type": "integer",
+                        "maximum": 5000.0,
+                        "title": "Limite",
+                        "default": 500
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "query"
+                ],
+                "title": "ConsultaSQL"
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "PedidoCarteira": {
+                "properties": {
+                    "tickers": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "minItems": 2,
+                        "title": "Tickers",
+                        "description": "Tickers da B3 ou qualquer ticker do Yahoo (AAPL, BTC-USD)",
+                        "examples": [
+                            [
+                                "MXRF11",
+                                "GARE11",
+                                "GOLD11",
+                                "AUVP11"
+                            ]
+                        ]
+                    },
+                    "valor": {
+                        "type": "number",
+                        "exclusiveMinimum": 0.0,
+                        "title": "Valor",
+                        "description": "Valor a investir (R$)",
+                        "default": 1000,
+                        "examples": [
+                            400
+                        ]
+                    },
+                    "peso_min": {
+                        "type": "number",
+                        "maximum": 1.0,
+                        "minimum": 0.0,
+                        "title": "Peso Min",
+                        "description": "Peso m\u00ednimo por ativo (0.05 = 5%)",
+                        "default": 0.0
+                    },
+                    "peso_max": {
+                        "type": "number",
+                        "maximum": 1.0,
+                        "exclusiveMinimum": 0.0,
+                        "title": "Peso Max",
+                        "description": "Peso m\u00e1ximo por ativo (0.35 = 35%)",
+                        "default": 0.35
+                    },
+                    "filosofia": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Filosofia",
+                        "description": "Configura os indicadores automaticamente (ver /api/carteira/opcoes)",
+                        "examples": [
+                            "value_conservador"
+                        ]
+                    },
+                    "indicadores": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Indicadores",
+                        "description": "Objetivos de otimiza\u00e7\u00e3o; se vazio, usa os da filosofia",
+                        "examples": [
+                            [
+                                "sharpe",
+                                "sortino",
+                                "calmar",
+                                "renda_risco"
+                            ]
+                        ]
+                    },
+                    "periodo": {
+                        "type": "string",
+                        "enum": [
+                            "1y",
+                            "2y",
+                            "5y",
+                            "10y"
+                        ],
+                        "title": "Periodo",
+                        "description": "Janela hist\u00f3rica dos retornos",
+                        "default": "2y"
+                    },
+                    "taxa_livre_risco": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Taxa Livre Risco",
+                        "description": "Taxa livre de risco anual (0.14 = 14%). Padr\u00e3o: B3_TAXA_LIVRE_RISCO"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "tickers"
+                ],
+                "title": "PedidoCarteira"
+            },
+            "PedidoMCAtivo": {
+                "properties": {
+                    "ticker": {
+                        "type": "string",
+                        "title": "Ticker",
+                        "examples": [
+                            "BTC-BRL"
+                        ]
+                    },
+                    "dias": {
+                        "type": "integer",
+                        "maximum": 2520.0,
+                        "minimum": 5.0,
+                        "title": "Dias",
+                        "description": "Horizonte em preg\u00f5es (dias corridos para cripto)",
+                        "default": 252
+                    },
+                    "simulacoes": {
+                        "type": "integer",
+                        "maximum": 10000.0,
+                        "minimum": 100.0,
+                        "title": "Simulacoes",
+                        "default": 3000
+                    },
+                    "metodo": {
+                        "type": "string",
+                        "enum": [
+                            "bootstrap",
+                            "normal",
+                            "t"
+                        ],
+                        "title": "Metodo",
+                        "default": "bootstrap"
+                    },
+                    "periodo": {
+                        "type": "string",
+                        "enum": [
+                            "2y",
+                            "5y",
+                            "10y",
+                            "max"
+                        ],
+                        "title": "Periodo",
+                        "default": "5y"
+                    },
+                    "alvo_alta": {
+                        "type": "number",
+                        "title": "Alvo Alta",
+                        "description": "Probabilidade de tocar +X% em algum momento",
+                        "default": 20.0
+                    },
+                    "alvo_queda": {
+                        "type": "number",
+                        "title": "Alvo Queda",
+                        "description": "Probabilidade de tocar -X% em algum momento",
+                        "default": -20.0
+                    },
+                    "semente": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Semente",
+                        "default": 42
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "ticker"
+                ],
+                "title": "PedidoMCAtivo"
+            },
+            "PedidoMCCarteira": {
+                "properties": {
+                    "tickers": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "minItems": 1,
+                        "title": "Tickers",
+                        "examples": [
+                            [
+                                "MXRF11",
+                                "GARE11",
+                                "GOLD11",
+                                "AUVP11"
+                            ]
+                        ]
+                    },
+                    "pesos": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Pesos",
+                        "description": "Um peso por ativo (normalizado); vazio = pesos iguais",
+                        "examples": [
+                            [
+                                0.35,
+                                0.03,
+                                0.34,
+                                0.28
+                            ]
+                        ]
+                    },
+                    "valor_inicial": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "title": "Valor Inicial",
+                        "default": 10000,
+                        "examples": [
+                            400
+                        ]
+                    },
+                    "aporte_mensal": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "title": "Aporte Mensal",
+                        "description": "Aporte no fim de cada m\u00eas (corrigido pela infla\u00e7\u00e3o, se informada)",
+                        "default": 0,
+                        "examples": [
+                            400
+                        ]
+                    },
+                    "anos": {
+                        "type": "number",
+                        "maximum": 40.0,
+                        "exclusiveMinimum": 0.0,
+                        "title": "Anos",
+                        "default": 10
+                    },
+                    "simulacoes": {
+                        "type": "integer",
+                        "maximum": 20000.0,
+                        "minimum": 100.0,
+                        "title": "Simulacoes",
+                        "default": 5000
+                    },
+                    "metodo": {
+                        "type": "string",
+                        "enum": [
+                            "bootstrap",
+                            "normal",
+                            "t"
+                        ],
+                        "title": "Metodo",
+                        "default": "bootstrap"
+                    },
+                    "periodo": {
+                        "type": "string",
+                        "enum": [
+                            "2y",
+                            "5y",
+                            "10y",
+                            "max"
+                        ],
+                        "title": "Periodo",
+                        "description": "Hist\u00f3rico usado para calibrar",
+                        "default": "5y"
+                    },
+                    "meta": {
+                        "anyOf": [
+                            {
+                                "type": "number",
+                                "exclusiveMinimum": 0.0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Meta",
+                        "description": "Patrim\u00f4nio-alvo (em reais de hoje se houver infla\u00e7\u00e3o)",
+                        "examples": [
+                            100000
+                        ]
+                    },
+                    "inflacao": {
+                        "type": "number",
+                        "maximum": 0.5,
+                        "minimum": 0.0,
+                        "title": "Inflacao",
+                        "description": "Infla\u00e7\u00e3o anual para mostrar valores reais (0.045 = 4,5%)",
+                        "default": 0.0
+                    },
+                    "taxa_livre_risco": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Taxa Livre Risco",
+                        "description": "Renda fixa de compara\u00e7\u00e3o (padr\u00e3o: B3_TAXA_LIVRE_RISCO)"
+                    },
+                    "semente": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Semente",
+                        "description": "Semente do gerador (mesma semente = mesmo resultado)",
+                        "default": 42
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "tickers"
+                ],
+                "title": "PedidoMCCarteira"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    },
+                    "input": {
+                        "title": "Input"
+                    },
+                    "ctx": {
+                        "type": "object",
+                        "title": "Context"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            }
         }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/tempo-real/cotacao/{ticker}": {
-   "get": {
+    },
     "tags": [
-     "Tempo real"
-    ],
-    "summary": "Cotação e estatísticas ao vivo",
-    "operationId": "cotacao_api_tempo_real_cotacao__ticker__get",
-    "parameters": [
-     {
-      "name": "ticker",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "HGLG11"
-       ],
-       "title": "Ticker"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/tempo-real/cotacoes": {
-   "get": {
-    "tags": [
-     "Tempo real"
-    ],
-    "summary": "Várias cotações de uma vez",
-    "operationId": "cotacoes_api_tempo_real_cotacoes_get",
-    "parameters": [
-     {
-      "name": "tickers",
-      "in": "query",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "HGLG11,BOVA11,IVVB11"
-       ],
-       "title": "Tickers"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/tempo-real/historico/{ticker}": {
-   "get": {
-    "tags": [
-     "Tempo real"
-    ],
-    "summary": "Histórico de preços (OHLCV)",
-    "operationId": "historico_api_tempo_real_historico__ticker__get",
-    "parameters": [
-     {
-      "name": "ticker",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "BOVA11"
-       ],
-       "title": "Ticker"
-      }
-     },
-     {
-      "name": "periodo",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "enum": [
-        "5d",
-        "1mo",
-        "3mo",
-        "6mo",
-        "1y",
-        "2y",
-        "5y",
-        "10y",
-        "ytd",
-        "max"
-       ],
-       "type": "string",
-       "default": "6mo",
-       "title": "Periodo"
-      }
-     },
-     {
-      "name": "intervalo",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "enum": [
-        "1m",
-        "5m",
-        "15m",
-        "30m",
-        "1h",
-        "1d",
-        "1wk",
-        "1mo"
-       ],
-       "type": "string",
-       "default": "1d",
-       "title": "Intervalo"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/atualizar/{tipo}/{codigo}": {
-   "post": {
-    "tags": [
-     "Atualização"
-    ],
-    "summary": "Recoleta um ativo agora",
-    "operationId": "atualizar_um_api_atualizar__tipo___codigo__post",
-    "parameters": [
-     {
-      "name": "tipo",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "enum": [
-        "etfs",
-        "fiis",
-        "acoes"
-       ],
-       "type": "string",
-       "title": "Tipo"
-      }
-     },
-     {
-      "name": "codigo",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "examples": [
-        "HGLG"
-       ],
-       "title": "Codigo"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/atualizar": {
-   "post": {
-    "tags": [
-     "Atualização"
-    ],
-    "summary": "Recoleta toda a base em background",
-    "operationId": "atualizar_tudo_api_atualizar_post",
-    "parameters": [
-     {
-      "name": "tipo",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "anyOf": [
         {
-         "enum": [
-          "etfs",
-          "fiis",
-          "acoes"
-         ],
-         "type": "string"
+            "name": "ETFs",
+            "description": "ETFs listados na B3 armazenados no SQLite."
         },
         {
-         "type": "null"
-        }
-       ],
-       "title": "Tipo"
-      }
-     }
-    ],
-    "responses": {
-     "202": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/atualizar/status": {
-   "get": {
-    "tags": [
-     "Atualização"
-    ],
-    "summary": "Status da atualização em background",
-    "operationId": "status_atualizacao_api_atualizar_status_get",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     }
-    }
-   }
-  }
- },
- "components": {
-  "schemas": {
-   "ConsultaSQL": {
-    "properties": {
-     "query": {
-      "type": "string",
-      "title": "Query",
-      "examples": [
-       "SELECT segmento, COUNT(*) n, ROUND(AVG(dividend_yield),2) dy FROM fundos WHERE status='ok' GROUP BY segmento ORDER BY dy DESC"
-      ]
-     },
-     "limite": {
-      "type": "integer",
-      "maximum": 5000.0,
-      "title": "Limite",
-      "default": 500
-     }
-    },
-    "type": "object",
-    "required": [
-     "query"
-    ],
-    "title": "ConsultaSQL"
-   },
-   "HTTPValidationError": {
-    "properties": {
-     "detail": {
-      "items": {
-       "$ref": "#/components/schemas/ValidationError"
-      },
-      "type": "array",
-      "title": "Detail"
-     }
-    },
-    "type": "object",
-    "title": "HTTPValidationError"
-   },
-   "PedidoCarteira": {
-    "properties": {
-     "tickers": {
-      "items": {
-       "type": "string"
-      },
-      "type": "array",
-      "minItems": 2,
-      "title": "Tickers",
-      "description": "Tickers da B3 ou qualquer ticker do Yahoo (AAPL, BTC-USD)",
-      "examples": [
-       [
-        "MXRF11",
-        "GARE11",
-        "GOLD11",
-        "AUVP11"
-       ]
-      ]
-     },
-     "valor": {
-      "type": "number",
-      "exclusiveMinimum": 0.0,
-      "title": "Valor",
-      "description": "Valor a investir (R$)",
-      "default": 1000,
-      "examples": [
-       400
-      ]
-     },
-     "peso_min": {
-      "type": "number",
-      "maximum": 1.0,
-      "minimum": 0.0,
-      "title": "Peso Min",
-      "description": "Peso mínimo por ativo (0.05 = 5%)",
-      "default": 0.0
-     },
-     "peso_max": {
-      "type": "number",
-      "maximum": 1.0,
-      "exclusiveMinimum": 0.0,
-      "title": "Peso Max",
-      "description": "Peso máximo por ativo (0.35 = 35%)",
-      "default": 0.35
-     },
-     "filosofia": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Filosofia",
-      "description": "Configura os indicadores automaticamente (ver /api/carteira/opcoes)",
-      "examples": [
-       "value_conservador"
-      ]
-     },
-     "indicadores": {
-      "anyOf": [
-       {
-        "items": {
-         "type": "string"
-        },
-        "type": "array"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Indicadores",
-      "description": "Objetivos de otimização; se vazio, usa os da filosofia",
-      "examples": [
-       [
-        "sharpe",
-        "sortino",
-        "calmar",
-        "renda_risco"
-       ]
-      ]
-     },
-     "periodo": {
-      "type": "string",
-      "enum": [
-       "1y",
-       "2y",
-       "5y",
-       "10y"
-      ],
-      "title": "Periodo",
-      "description": "Janela histórica dos retornos",
-      "default": "2y"
-     },
-     "taxa_livre_risco": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Taxa Livre Risco",
-      "description": "Taxa livre de risco anual (0.14 = 14%). Padrão: B3_TAXA_LIVRE_RISCO"
-     }
-    },
-    "type": "object",
-    "required": [
-     "tickers"
-    ],
-    "title": "PedidoCarteira"
-   },
-   "ValidationError": {
-    "properties": {
-     "loc": {
-      "items": {
-       "anyOf": [
-        {
-         "type": "string"
+            "name": "FIIs",
+            "description": "Fundos imobili\u00e1rios listados na B3 (Yahoo + informe mensal CVM)."
         },
         {
-         "type": "integer"
+            "name": "A\u00e7\u00f5es",
+            "description": "A\u00e7\u00f5es e units da B3 (lista do Formul\u00e1rio Cadastral da CVM + fundamentos do Yahoo)."
+        },
+        {
+            "name": "Criptomoedas",
+            "description": "Maiores criptomoedas por valor de mercado (CoinGecko) com hist\u00f3rico do Yahoo Finance convertido para reais. Ticker no app: BTC-BRL."
+        },
+        {
+            "name": "An\u00e1lises",
+            "description": "Resumo, rankings, compara\u00e7\u00f5es, dicion\u00e1rio de m\u00e9tricas e SQL livre (somente leitura). Tabelas: etfs, fundos, acoes, proventos e view ativos."
+        },
+        {
+            "name": "Tempo real",
+            "description": "Consultas diretas ao Yahoo Finance (cache de 30 s). Aceita qualquer ticker: HGLG11, PETR4, AAPL, ^BVSP, BTC-USD."
+        },
+        {
+            "name": "Carteira",
+            "description": "Otimiza\u00e7\u00e3o de carteira (Markowitz, Sharpe, Sortino, Calmar, CVaR, paridade de risco...) com aloca\u00e7\u00e3o em cotas inteiras."
+        },
+        {
+            "name": "Monte Carlo",
+            "description": "Simula\u00e7\u00f5es de patrim\u00f4nio (carteira com aportes e meta) e cones de pre\u00e7o de um ativo, por bootstrap do hist\u00f3rico, normal ou t de Student."
+        },
+        {
+            "name": "Atualiza\u00e7\u00e3o",
+            "description": "Recoleta dados e grava no SQLite."
         }
-       ]
-      },
-      "type": "array",
-      "title": "Location"
-     },
-     "msg": {
-      "type": "string",
-      "title": "Message"
-     },
-     "type": {
-      "type": "string",
-      "title": "Error Type"
-     },
-     "input": {
-      "title": "Input"
-     },
-     "ctx": {
-      "type": "object",
-      "title": "Context"
-     }
-    },
-    "type": "object",
-    "required": [
-     "loc",
-     "msg",
-     "type"
-    ],
-    "title": "ValidationError"
-   }
-  }
- },
- "tags": [
-  {
-   "name": "ETFs",
-   "description": "ETFs listados na B3 armazenados no SQLite."
-  },
-  {
-   "name": "FIIs",
-   "description": "Fundos imobiliários listados na B3 (Yahoo + informe mensal CVM)."
-  },
-  {
-   "name": "Ações",
-   "description": "Ações e units da B3 (lista do Formulário Cadastral da CVM + fundamentos do Yahoo)."
-  },
-  {
-   "name": "Análises",
-   "description": "Resumo, rankings, comparações, dicionário de métricas e SQL livre (somente leitura). Tabelas: etfs, fundos, acoes, proventos e view ativos."
-  },
-  {
-   "name": "Tempo real",
-   "description": "Consultas diretas ao Yahoo Finance (cache de 30 s). Aceita qualquer ticker: HGLG11, PETR4, AAPL, ^BVSP, BTC-USD."
-  },
-  {
-   "name": "Carteira",
-   "description": "Otimização de carteira (Markowitz, Sharpe, Sortino, Calmar, CVaR, paridade de risco...) com alocação em cotas inteiras."
-  },
-  {
-   "name": "Atualização",
-   "description": "Recoleta dados e grava no SQLite."
-  }
- ]
+    ]
 }

@@ -10,9 +10,10 @@ const MAIOR = ['dividend_yield', 'dy_anualizado', 'dy_12m_cvm', 'proventos_12m',
   'max_drawdown_12m', 'liquidez_media', 'volume_medio', 'valor_mercado', 'patrimonio_liquido', 'valor_ativo', 'cotistas',
   'rentab_efetiva_12m', 'rentab_patrimonial_12m', 'dist_max_52s', 'roe', 'roa', 'margem_bruta', 'margem_ebitda',
   'margem_operacional', 'margem_liquida', 'earnings_yield', 'margem_graham', 'crescimento_receita', 'crescimento_lucro', 'receita',
-  'ebitda', 'lucro_liquido', 'liquidez_corrente', 'potencial_alvo', 'free_float']
+  'ebitda', 'lucro_liquido', 'liquidez_corrente', 'potencial_alvo', 'free_float', 'sortino_12m', 'valor_mercado_usd',
+  'volume_24h_usd', 'volume_mcap', 'mcap_fdv', 'pct_emitido', 'variacao_24h', 'variacao_7d', 'dist_ath']
 const MENOR = ['pvp', 'pl', 'pl_projetado', 'psr', 'ev_ebitda', 'ev_receita', 'peg', 'volatilidade_12m', 'alavancagem', 'taxa_adm_anual',
-  'div_liq_ebitda', 'divida_patrimonio']
+  'div_liq_ebitda', 'divida_patrimonio', 'rank_mercado']
 const melhor = (c) => (MAIOR.includes(c) ? 'max' : MENOR.includes(c) ? 'min' : null)
 
 const CHAVE = (tipo) => `comparativos_${tipo}`

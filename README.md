@@ -1,6 +1,7 @@
-# B3 Fundos — Ações, ETFs & FIIs
+# B3 Fundos — Ações, ETFs, FIIs & Cripto
 
-Base SQLite + API REST (FastAPI/Swagger) + servidor MCP + dashboard React para ações, ETFs e FIIs listados na B3.
+Base SQLite + API REST (FastAPI/Swagger) + servidor MCP + dashboard React para ações, ETFs e FIIs listados na B3 e as
+maiores criptomoedas, com otimização de carteira, simulações de Monte Carlo e um home broker de acompanhamento.
 
 ```
 data/            CSVs da B3 (etfsListados.csv, fundosListados.csv) e o banco b3.db
@@ -8,6 +9,9 @@ backend/app/
   db.py          schema SQLite + dicionário de métricas
   yahoo.py       coleta Yahoo Finance (métricas + tempo real, ajuste de desdobramentos)
   cvm.py         informe mensal de FIIs da CVM (VP/cota, PL, cotistas, segmento, carteira)
+  cripto.py      maiores criptos (CoinGecko) + histórico do Yahoo convertido para reais
+  portfolio.py   otimização de carteira (Markowitz e variações)
+  montecarlo.py  simulações de patrimônio, meta e cone de preço
   ingest.py      carga dos CSVs + coleta → SQLite
   repository.py  consultas (usadas pela API e pelo MCP)
   main.py        API REST (Swagger em /docs) — também serve o dashboard
@@ -24,6 +28,7 @@ postman_openapi.json  especificação OpenAPI para importar no Postman
 | Yahoo Finance | preço, liquidez, retornos 1m/3m/6m/ano/12m/24m, retorno total com proventos, volatilidade, drawdown, Sharpe, beta e correlação com o IBOV, médias móveis, proventos (DY, último rendimento, consistência e crescimento), P/L dos ETFs |
 | CVM (Formulário Cadastral + cadastro de companhias) | lista de ações/units negociadas (ticker, ON/PN/Unit, composição da unit), segmento de listagem, setor, controle acionário |
 | Yahoo Finance (ações) | P/L, P/L projetado, P/VP, P/Receita, EV/EBITDA, PEG, LPA, VPA, valor e margem de Graham, ROE, ROA, margens, receita, EBITDA, lucro, dívida líquida/EBITDA, liquidez corrente, crescimento, payout, preço-alvo e recomendação dos analistas |
+| CoinGecko + Yahoo Finance (cripto) | universo das ~150 maiores por valor de mercado, oferta circulante/máxima, FDV, máxima histórica; histórico diário do par em dólar × câmbio USD/BRL de cada dia → retornos, volatilidade (365 dias), drawdown, Sharpe, Sortino, beta/correlação com BTC e IBOV |
 | CVM (informe mensal) | VP/cota → P/VP, patrimônio líquido, ativo total, cotistas, alavancagem, taxa de administração, rentabilidade efetiva/patrimonial 12m, DY informado, % imóveis/papel/FIIs/caixa, segmento, mandato, gestão, administrador |
 
 `GET /api/metricas` lista as ~45 colunas de cada tabela com descrição.
@@ -40,6 +45,7 @@ uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt   
 
 .venv/bin/python -m app.ingest                 # carrega CSVs + CVM + Yahoo (~15 min)
 .venv/bin/python -m app.ingest --only acao     # só ações
+.venv/bin/python -m app.ingest --only cripto   # só criptos (--limit N = quantas moedas, padrão 150)
 .venv/bin/python -m app.ingest --pendentes     # repete só o que falhou (rate limit do Yahoo)
 
 cd ../frontend && npm install && npm run build  # gera o dashboard que a API serve
@@ -99,6 +105,43 @@ Toda coluna numérica aceita `min_<coluna>` / `max_<coluna>`.
   - *Comparação* — até 8 ativos no mesmo gráfico (uma cor cada), em base 100, variação %, preço ou uma
     fórmula aplicada a cada ativo.
 
+## Criptomoedas
+
+Ticker no app e na API: `BTC-BRL`, `SOL-BRL`... (o par em dólar do Yahoo multiplicado pelo câmbio). `BTC-USD` também
+funciona em tempo real. Símbolos repetidos no Yahoo são resolvidos pelo preço do CoinGecko (ex.: HYPE → `HYPE32196-USD`).
+Categorias: Stablecoin, Reserva de valor, Plataforma (L1), Pagamentos, Layer 2, DeFi, Infraestrutura/oráculos, Token de
+corretora, Meme, Games, Ativo tokenizado (RWA), Lastreada em ouro, Derivativo (wrapped/staking). A coluna `alerta` marca
+stablecoin fora da paridade, giro baixo, muita emissão futura (valor de mercado < 50% do FDV) e histórico curto.
+
+Na carteira, cripto entra com quantidade fracionária e, misturada a ativos da bolsa, o retorno é medido nos pregões
+(o fim de semana da cripto entra no retorno de segunda).
+
+## Monte Carlo
+
+```bash
+# patrimônio em 10 anos com R$ 400 + R$ 400/mês, em reais de hoje (IPCA 4,5%), e chance de chegar a R$ 100 mil
+curl -X POST localhost:8000/api/montecarlo/carteira -H 'content-type: application/json' -d '{
+  "tickers": ["MXRF11", "GOLD11", "AUVP11", "BTC-BRL"], "pesos": [0.35, 0.3, 0.3, 0.05],
+  "valor_inicial": 400, "aporte_mensal": 400, "anos": 10, "meta": 100000, "inflacao": 0.045
+}'
+
+# cone de preço do bitcoin em 1 ano
+curl -X POST localhost:8000/api/montecarlo/ativo -H 'content-type: application/json' -d '{"ticker": "BTC-BRL", "dias": 365}'
+```
+
+Métodos: `bootstrap` (blocos de 20 dias do histórico real — mantém caudas gordas e a correlação entre os ativos),
+`normal` (GBM) e `t` (t de Student, 4 graus de liberdade). A carteira é rebalanceada aos pesos; o aporte entra no fim de
+cada mês. Com `meta`, a resposta traz a chance de atingi-la (no fim e ano a ano), o mês mediano em que chega lá e o aporte
+mensal necessário para 50/75/90% de chance (o valor final é linear no aporte para os mesmos sorteios, então sai por
+bisseção sem simular de novo).
+
+## Home Broker
+
+Aba de acompanhamento (sem ordens): várias carteiras com quantidade e preço médio, cotações a cada 30 s, variação do
+dia, resultado por ativo, renda passiva estimada pelos proventos de 12 meses, alocação por ativo e por classe e o valor
+da carteira atual ao longo do dia/semana/mês/ano. As carteiras ficam no `localStorage` do navegador (exportar/importar
+JSON); a aba Carteira manda uma carteira otimizada direto para o Home Broker ou para o Monte Carlo.
+
 ## Carteira (Markowitz)
 
 `POST /api/carteira/otimizar` — e a aba **Carteira** do dashboard — otimizam uma carteira com retornos diários
@@ -120,7 +163,8 @@ iguais, métricas por ativo, matriz de correlação e a fronteira eficiente.
 
 ## MCP
 
-Ferramentas: `buscar_fiis`, `buscar_etfs`, `detalhes_ativo`, `comparar_ativos`, `ranking`, `resumo_mercado`,
+Ferramentas: `buscar_acoes`, `buscar_fiis`, `buscar_etfs`, `buscar_criptos`, `simular_carteira_monte_carlo`,
+`simular_preco_monte_carlo`, `detalhes_ativo`, `comparar_ativos`, `ranking`, `resumo_mercado`,
 `dicionario_metricas`, `valores_coluna`, `consultar_sql`, `cotacao_tempo_real`, `historico_precos`, `buscar_ativos`,
 `otimizar_carteira`, `atualizar_ativo`.
 

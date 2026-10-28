@@ -16,7 +16,7 @@ IDENT = [
     ("razao_social", "TEXT NOT NULL", "Razão social (arquivo da B3)"),
     ("nome_pregao", "TEXT", "Nome de pregão"),
     ("nome_yahoo", "TEXT", "Nome no Yahoo Finance"),
-    ("categoria", "TEXT", "Categoria (ETF: Ações Brasil/Internacional/Renda Fixa/Cripto/Commodities; FII: Tijolo/Papel/FoF/Híbrido; ação: setor CVM)"),
+    ("categoria", "TEXT", "Categoria (ETF: Ações Brasil/Internacional/Renda Fixa/Cripto/Commodities; FII: Tijolo/Papel/FoF/Híbrido; ação: setor CVM; cripto: Stablecoin, Plataforma (L1), DeFi, Meme...)"),
 ]
 
 MERCADO = [
@@ -131,10 +131,36 @@ ACAO_EXTRA = [
     ("alerta", "TEXT", "Aviso de qualidade de dado (ex.: múltiplos de unit estimados, baixa liquidez)"),
 ]
 
+CRIPTO_EXTRA = [
+    ("yahoo_symbol", "TEXT", "Símbolo do par em dólar no Yahoo Finance (ex.: BTC-USD)"),
+    ("coingecko_id", "TEXT", "Identificador no CoinGecko"),
+    ("rank_mercado", "INTEGER", "Posição por valor de mercado (CoinGecko)"),
+    ("preco_usd", "REAL", "Último preço (US$)"),
+    ("valor_mercado_usd", "REAL", "Valor de mercado (US$)"),
+    ("volume_24h_usd", "REAL", "Volume negociado em 24h (US$)"),
+    ("volume_mcap", "REAL", "Giro: volume 24h / valor de mercado (%)"),
+    ("variacao_24h", "REAL", "Variação em 24h, em dólar (%)"),
+    ("variacao_7d", "REAL", "Variação em 7 dias, em dólar (%)"),
+    ("ath_usd", "REAL", "Máxima histórica (US$)"),
+    ("dist_ath", "REAL", "Distância da máxima histórica (%)"),
+    ("data_ath", "TEXT", "Data da máxima histórica"),
+    ("oferta_circulante", "REAL", "Moedas em circulação"),
+    ("oferta_total", "REAL", "Moedas emitidas (total)"),
+    ("oferta_maxima", "REAL", "Oferta máxima (vazio = sem teto)"),
+    ("pct_emitido", "REAL", "Circulante / oferta máxima (%)"),
+    ("fdv_usd", "REAL", "Valor totalmente diluído — preço × oferta máxima (US$)"),
+    ("mcap_fdv", "REAL", "Valor de mercado / FDV (%) — abaixo de 50% indica muita emissão futura"),
+    ("sortino_12m", "REAL", "Sortino 12m — retorno em excesso / volatilidade das quedas"),
+    ("correlacao_btc", "REAL", "Correlação com o Bitcoin (12 meses, retornos diários em US$)"),
+    ("beta_btc", "REAL", "Beta contra o Bitcoin (12 meses)"),
+    ("alerta", "TEXT", "Aviso de qualidade/risco (stablecoin desancorada, baixa liquidez, histórico curto, diluição)"),
+]
+
 TABELAS = {
     "etfs": IDENT + MERCADO + ETF_EXTRA,
     "fundos": IDENT + MERCADO + FII_EXTRA,
     "acoes": IDENT + MERCADO + ACAO_EXTRA,
+    "criptos": IDENT + MERCADO + CRIPTO_EXTRA,
 }
 
 COMUNS = [c for c, _, _ in IDENT + MERCADO]
@@ -160,7 +186,9 @@ CREATE VIEW ativos AS
     UNION ALL
     SELECT 'FII' AS tipo, {cols}, NULL AS pl, pvp FROM fundos
     UNION ALL
-    SELECT 'ACAO' AS tipo, {cols}, pl, pvp FROM acoes;
+    SELECT 'ACAO' AS tipo, {cols}, pl, pvp FROM acoes
+    UNION ALL
+    SELECT 'CRIPTO' AS tipo, {cols}, NULL AS pl, NULL AS pvp FROM criptos;
 CREATE INDEX IF NOT EXISTS idx_fundos_categoria ON fundos(categoria);
 CREATE INDEX IF NOT EXISTS idx_fundos_segmento ON fundos(segmento);
 CREATE INDEX IF NOT EXISTS idx_fundos_dy ON fundos(dividend_yield);
@@ -168,6 +196,7 @@ CREATE INDEX IF NOT EXISTS idx_fundos_pvp ON fundos(pvp);
 CREATE INDEX IF NOT EXISTS idx_etfs_categoria ON etfs(categoria);
 CREATE INDEX IF NOT EXISTS idx_acoes_categoria ON acoes(categoria);
 CREATE INDEX IF NOT EXISTS idx_acoes_empresa ON acoes(empresa);
+CREATE INDEX IF NOT EXISTS idx_criptos_categoria ON criptos(categoria);
 """)
     return "\n".join(parts)
 

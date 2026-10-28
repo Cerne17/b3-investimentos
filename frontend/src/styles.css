@@ -269,3 +269,21 @@ a:hover { color: var(--accent-hover); }
 .tab.active { background: var(--accent-soft); color: var(--accent); }
 .chip.on, .chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 ::selection { background: var(--accent-soft); }
+
+/* Monte Carlo */
+.meta-anos { display: flex; gap: 4px; align-items: flex-end; overflow-x: auto; padding-bottom: 2px; }
+.meta-anos > div { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 34px; flex: 1; font-size: 11px; }
+.meta-anos .barra { height: 64px; width: 100%; max-width: 28px; background: var(--surface-2); border-radius: 4px; display: flex; align-items: flex-end; overflow: hidden; }
+.meta-anos .barra div { width: 100%; background: var(--series-3); border-radius: 4px 4px 0 0; }
+
+/* Home Broker */
+.hb-status { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); }
+.pulso { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.pulso.on { background: var(--good); animation: pulso 2s ease-in-out infinite; }
+@keyframes pulso { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pulso.on { animation: none; } }
+.hb-aloc { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 16px; font-size: 13px; }
+.hb-aloc > div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--border); padding: 3px 0; }
+.hb-aloc span { display: inline-flex; align-items: center; min-width: 0; }
+.hb-edit { width: 92px; text-align: right; padding: 3px 6px; font: inherit; font-variant-numeric: tabular-nums; }
+.kpis.compacto .kpi .value { font-size: clamp(18px, 2vw, 22px); overflow-wrap: anywhere; }

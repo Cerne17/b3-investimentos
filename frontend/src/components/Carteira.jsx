@@ -3,6 +3,7 @@ import { api } from '../api.js'
 import { fmt, signClass, signed } from '../format.js'
 import { FrontierChart } from './Charts.jsx'
 import BuscaAtivo from './BuscaAtivo.jsx'
+import { novaCarteira } from '../lib/broker.js'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 const cor = (i) => CORES[i] || 'var(--text-muted)' // acima de 8 ativos a cor deixa de identificar; o rótulo sempre aparece
@@ -22,7 +23,7 @@ const LINHAS = [
   ['renda_risco', 'Renda por risco', (v) => fmt.num(v, 2), true],
 ]
 
-function CarteiraCard({ c, idx, tickers, melhor }) {
+function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker }) {
   const a = c.alocacao
   return (
     <div className="card port-card">
@@ -44,7 +45,7 @@ function CarteiraCard({ c, idx, tickers, melhor }) {
               <tr key={t} style={{ cursor: 'default' }}>
                 <td className="txt"><span className="dot" style={{ background: cor(i) }} />{t}</td>
                 <td className="num">{fmt.pct(c.pesos[t] * 100, 1)}</td>
-                <td className="num">{a.cotas[i]}</td>
+                <td className="num">{a.fracionario?.[i] ? fmt.num(a.cotas[i], a.cotas[i] < 1 ? 6 : 4) : a.cotas[i]}</td>
                 <td className="num">{fmt.brl(a.valores[i])}</td>
                 <td className="num">{fmt.pct(a.pct_do_valor[i] * 100, 1)}</td>
               </tr>
@@ -62,11 +63,17 @@ function CarteiraCard({ c, idx, tickers, melhor }) {
           <div key={l}><div className="label">{l}</div><div className="value num">{v}</div></div>
         ))}
       </div>
+      {(onSimular || onBroker) && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          {onSimular && <button className="btn" onClick={() => onSimular({ tickers, pesos: tickers.map((t) => c.pesos[t]), valor_inicial: Number(valor), nome: c.nome })}>Simular no Monte Carlo</button>}
+          {onBroker && <button className="btn" onClick={() => onBroker(c)} title="Cria uma carteira no Home Broker com estas quantidades e o preço atual como preço médio">Acompanhar no Home Broker</button>}
+        </div>
+      )}
     </div>
   )
 }
 
-export default function Carteira() {
+export default function Carteira({ onSimular, onBroker }) {
   const [opcoes, setOpcoes] = useState(null)
   const [tickers, setTickers] = useState(['MXRF11', 'GARE11', 'GOLD11', 'AUVP11'])
   const [valor, setValor] = useState(400)
@@ -106,6 +113,15 @@ export default function Carteira() {
     return vals.length ? (maior ? Math.max(...vals) : Math.min(...vals)) : null
   }
   const tks = res?.parametros.tickers || tickers
+  const acoes = {
+    valor: res?.parametros.valor,
+    onSimular,
+    onBroker: onBroker && ((c) => {
+      const a = c.alocacao
+      novaCarteira(c.nome, tks.map((t, i) => ({ ticker: t, quantidade: a.cotas[i], preco_medio: a.precos[i] })).filter((p) => p.quantidade > 0))
+      onBroker()
+    }),
+  }
 
   return (
     <>
@@ -195,8 +211,8 @@ export default function Carteira() {
           </div>
 
           <div className="port-grid section">
-            {res.carteiras.map((c, i) => <CarteiraCard key={c.chave} c={c} idx={i} tickers={tks} />)}
-            <CarteiraCard c={res.pesos_iguais} tickers={tks} />
+            {res.carteiras.map((c, i) => <CarteiraCard key={c.chave} c={c} idx={i} tickers={tks} {...acoes} />)}
+            <CarteiraCard c={res.pesos_iguais} tickers={tks} {...acoes} />
           </div>
 
           <div className="grid two section">

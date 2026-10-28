@@ -6,14 +6,15 @@ from statistics import median
 from .db import TABELAS, colunas, connect
 
 TIPOS = {"etf": "etfs", "etfs": "etfs", "fii": "fundos", "fiis": "fundos", "fundo": "fundos", "fundos": "fundos",
-         "acao": "acoes", "acoes": "acoes", "ação": "acoes", "ações": "acoes"}
+         "acao": "acoes", "acoes": "acoes", "ação": "acoes", "ações": "acoes",
+         "cripto": "criptos", "criptos": "criptos"}
 
 
 def tabela_de(tipo: str) -> str:
     try:
         return TIPOS[tipo.lower()]
     except KeyError:
-        raise ValueError(f"tipo inválido: {tipo!r} (use 'etf', 'fii' ou 'acao')")
+        raise ValueError(f"tipo inválido: {tipo!r} (use 'etf', 'fii', 'acao' ou 'cripto')")
 
 
 def numericas(tabela: str) -> list[str]:
@@ -37,6 +38,7 @@ def listar(
     busca: str | None = None,
     categoria: str | None = None,
     segmento: str | None = None,
+    excluir_categoria: str | None = None,
     faixas: dict[str, tuple[float | None, float | None]] | None = None,
     igual: dict[str, str] | None = None,
     somente_com_dados: bool = True,
@@ -58,6 +60,9 @@ def listar(
     if categoria:
         where.append("categoria = ? COLLATE NOCASE")
         args.append(categoria)
+    if excluir_categoria:
+        where.append("COALESCE(categoria, '') != ? COLLATE NOCASE")
+        args.append(excluir_categoria)
     if segmento:
         if tabela == "etfs":
             raise ValueError("segmento não existe para ETFs")
@@ -99,7 +104,9 @@ def listar(
 def obter(tipo: str, codigo: str) -> dict | None:
     tabela = tabela_de(tipo)
     codigo = codigo.upper().replace(".SA", "")
-    if tabela != "acoes":
+    if tabela == "criptos":
+        codigo = re.sub(r"-(BRL|USD)$", "", codigo)  # aceita BTC, BTC-BRL ou BTC-USD
+    elif tabela != "acoes":
         codigo = re.sub(r"\d+$", "", codigo)  # aceita HGLG11 ou HGLG; ações usam o ticker completo (PETR4)
     with connect(readonly=True) as conn:
         row = conn.execute(f"SELECT * FROM {tabela} WHERE codigo = ?", [codigo]).fetchone()
@@ -120,7 +127,7 @@ def proventos(codigo: str, limite: int = 120) -> list[dict]:
 
 
 def buscar(q: str, limite: int = 15) -> list[dict]:
-    """Autocomplete em ETFs e FIIs (código, ticker ou nome)."""
+    """Autocomplete em ações, ETFs, FIIs e criptos (código, ticker ou nome)."""
     like = f"%{q}%"
     with connect(readonly=True) as conn:
         rows = conn.execute(
@@ -136,7 +143,7 @@ def buscar(q: str, limite: int = 15) -> list[dict]:
 def comparar(codigos: list[str]) -> list[dict]:
     out = []
     for c in codigos:
-        for tipo in ("acao", "etf", "fii"):
+        for tipo in (("cripto",) if re.search(r"-(BRL|USD)$", c.upper()) else ("acao", "etf", "fii", "cripto")):
             r = obter(tipo, c)
             if r:
                 r.pop("proventos_recentes", None)
@@ -168,6 +175,7 @@ def resumo() -> dict:
         "etfs": ["dividend_yield", "pl", "retorno_12m", "volatilidade_12m", "liquidez_media"],
         "fundos": ["dividend_yield", "pvp", "retorno_total_12m", "liquidez_media", "alavancagem"],
         "acoes": ["pl", "pvp", "roe", "dividend_yield", "retorno_total_12m", "margem_liquida", "ev_ebitda", "liquidez_media"],
+        "criptos": ["retorno_12m", "volatilidade_12m", "max_drawdown_12m", "sharpe_12m", "correlacao_btc", "liquidez_media"],
     }
     out = {}
     with connect(readonly=True) as conn:

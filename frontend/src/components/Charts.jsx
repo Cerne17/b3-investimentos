@@ -254,7 +254,7 @@ export function FrontierChart({ fronteira, ativos, carteiras, cores, height = 34
 }
 
 // Várias séries no mesmo eixo (sem eixo duplo). Crosshair com o valor de todas as séries no ponto.
-export function MultiLineChart({ datas, series, height = 260, fmtY = (v) => fmt.num(v), refs = [], label = 'Gráfico' }) {
+export function MultiLineChart({ datas, series, height = 260, fmtY = (v) => fmt.num(v), fmtX = fmt.date, refs = [], label = 'Gráfico' }) {
   const [ref, w] = useWidth()
   const [hover, setHover] = useState(null)
   const n = datas.length
@@ -309,7 +309,7 @@ export function MultiLineChart({ datas, series, height = 260, fmtY = (v) => fmt.
           </g>
         ))}
         {xt.map((i, k) => (
-          <text key={k} x={sx(i)} y={height - 6} textAnchor={k === 0 ? 'start' : k === 3 ? 'end' : 'middle'}>{fmt.date(datas[i])}</text>
+          <text key={k} x={sx(i)} y={height - 6} textAnchor={k === 0 ? 'start' : k === 3 ? 'end' : 'middle'}>{fmtX(datas[i])}</text>
         ))}
         {series.map((s) => (
           <path key={s.nome} d={caminho(s.valores)} fill="none" stroke={s.cor} strokeWidth={s.tracejado ? 1.5 : 2}
@@ -326,13 +326,143 @@ export function MultiLineChart({ datas, series, height = 260, fmtY = (v) => fmt.
       </svg>
       {hover != null && (
         <div className="tooltip" style={{ left: `${Math.min(85, Math.max(15, (sx(hover) / w) * 100))}%`, top: P.t + 4, transform: 'translate(-50%, 0)' }}>
-          <span className="muted">{fmt.date(datas[hover])}</span>
+          <span className="muted">{fmtX(datas[hover], true)}</span>
           {series.map((s) => (
             <div key={s.nome} className="num" style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
               <span><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: s.cor, marginRight: 6 }} />{s.nome}</span>
               <b style={{ display: 'inline' }}>{Number.isFinite(s.valores[hover]) ? fmtY(s.valores[hover]) : '—'}</b>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Leque de percentis (Monte Carlo): faixas p5–p95 e p25–p75, mediana e linhas de referência.
+// bandas = { p5: [], p25: [], p50: [], p75: [], p95: [] } alinhadas a `datas`; valores não finitos não são desenhados.
+export function FanChart({ datas, bandas, linhas = [], refs = [], height = 320, fmtY = (v) => fmt.num(v), label = 'Simulação', cor = 'var(--series-1)' }) {
+  const [ref, w] = useWidth()
+  const [hover, setHover] = useState(null)
+  const n = datas.length
+  const todos = [...['p5', 'p95'].flatMap((k) => bandas[k] || []), ...linhas.flatMap((l) => l.valores), ...refs.map((r) => r.y)].filter(Number.isFinite)
+  if (!n || !todos.length) return <div className="empty">Sem dados</div>
+  let min = Math.min(...todos), max = Math.max(...todos)
+  const pad = (max - min) * 0.06 || Math.abs(max) * 0.02 || 1
+  min = Math.max(min - pad, Math.min(...todos) >= 0 ? 0 : -Infinity); max += pad
+  const P = { l: 64, r: 12, t: 10, b: 24 }
+  const iw = w - P.l - P.r, ih = height - P.t - P.b
+  const sx = (i) => P.l + (n === 1 ? iw / 2 : (i / (n - 1)) * iw)
+  const sy = (v) => P.t + ih - ((v - min) / (max - min)) * ih
+  const linha = (vals) => {
+    let d = '', pen = false
+    vals.forEach((v, i) => {
+      if (!Number.isFinite(v)) { pen = false; return }
+      d += `${pen ? 'L' : 'M'}${sx(i).toFixed(1)},${sy(v).toFixed(1)}`; pen = true
+    })
+    return d
+  }
+  const area = (lo, hi) => {
+    const idx = datas.map((_, i) => i).filter((i) => Number.isFinite(lo[i]) && Number.isFinite(hi[i]))
+    if (!idx.length) return ''
+    return `M${idx.map((i) => `${sx(i).toFixed(1)},${sy(hi[i]).toFixed(1)}`).join('L')}L${[...idx].reverse().map((i) => `${sx(i).toFixed(1)},${sy(lo[i]).toFixed(1)}`).join('L')}Z`
+  }
+  const xt = [0, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1]
+  const onMove = (e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const px = ((e.clientX - r.left) / r.width) * w
+    setHover(Math.max(0, Math.min(n - 1, Math.round(((px - P.l) / iw) * (n - 1)))))
+  }
+  const linhasTip = hover == null ? [] : [
+    ...['p95', 'p75', 'p50', 'p25', 'p5'].filter((k) => Number.isFinite(bandas[k]?.[hover])).map((k) => [k === 'p50' ? 'Mediana' : `Percentil ${k.slice(1)}`, bandas[k][hover], k === 'p50' ? cor : null]),
+    ...linhas.filter((l) => Number.isFinite(l.valores[hover])).map((l) => [l.nome, l.valores[hover], l.cor]),
+  ]
+  return (
+    <div className="chart" ref={ref}>
+      <div className="legend">
+        <span><i style={{ background: cor, opacity: 0.25 }} />5–95%</span>
+        <span><i style={{ background: cor, opacity: 0.5 }} />25–75%</span>
+        <span><i style={{ background: cor }} />Mediana</span>
+        {linhas.map((l) => <span key={l.nome}><i style={{ background: l.cor, ...(l.tracejado ? { height: 2, width: 14, borderRadius: 2, verticalAlign: 3 } : {}) }} />{l.nome}</span>)}
+      </div>
+      <svg viewBox={`0 0 ${w} ${height}`} onMouseMove={onMove} onMouseLeave={() => setHover(null)} role="img" aria-label={label}>
+        {ticks(min, max).map((t) => (
+          <g key={t}>
+            <line className="gridline" x1={P.l} x2={w - P.r} y1={sy(t)} y2={sy(t)} />
+            <text x={P.l - 6} y={sy(t) + 4} textAnchor="end">{fmtY(t, true)}</text>
+          </g>
+        ))}
+        {xt.map((i, k) => (
+          <text key={k} x={sx(i)} y={height - 6} textAnchor={k === 0 ? 'start' : k === 3 ? 'end' : 'middle'}>{fmt.date(datas[i])}</text>
+        ))}
+        {bandas.p5 && <path d={area(bandas.p5, bandas.p95)} fill={cor} opacity="0.16" />}
+        {bandas.p25 && <path d={area(bandas.p25, bandas.p75)} fill={cor} opacity="0.3" />}
+        {refs.map((r) => (
+          <g key={r.label || r.y}>
+            <line x1={P.l} x2={w - P.r} y1={sy(r.y)} y2={sy(r.y)} stroke={r.cor || 'var(--text-muted)'} strokeDasharray="4 4" />
+            {r.label && <text x={w - P.r} y={sy(r.y) - 4} textAnchor="end" style={{ fill: r.cor || undefined }}>{r.label}</text>}
+          </g>
+        ))}
+        {linhas.map((l) => (
+          <path key={l.nome} d={linha(l.valores)} fill="none" stroke={l.cor} strokeWidth={l.fino ? 1 : l.tracejado ? 1.5 : 2}
+            strokeDasharray={l.tracejado ? '5 4' : undefined} opacity={l.opacidade ?? 1} strokeLinejoin="round" />
+        ))}
+        {bandas.p50 && <path d={linha(bandas.p50)} fill="none" stroke={cor} strokeWidth="2.25" strokeLinejoin="round" />}
+        {hover != null && <line x1={sx(hover)} x2={sx(hover)} y1={P.t} y2={P.t + ih} stroke="var(--text-muted)" strokeDasharray="3 3" />}
+      </svg>
+      {hover != null && linhasTip.length > 0 && (
+        <div className="tooltip" style={{ left: `${Math.min(82, Math.max(18, (sx(hover) / w) * 100))}%`, top: P.t + 4, transform: 'translate(-50%, 0)' }}>
+          <span className="muted">{fmt.date(datas[hover])}</span>
+          {linhasTip.map(([nome, v, c]) => (
+            <div key={nome} className="num" style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
+              <span>{c && <i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: c, marginRight: 6 }} />}{nome}</span>
+              <b style={{ display: 'inline' }}>{fmtY(v)}</b>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Histograma de uma distribuição (bordas com n+1 valores, contagens com n) e marcadores verticais.
+export function Histogram({ bordas, contagens, refs = [], height = 200, fmtX = (v) => fmt.num(v), label = 'Distribuição', cor = 'var(--series-1)' }) {
+  const [ref, w] = useWidth()
+  const [hover, setHover] = useState(null)
+  const n = contagens.length
+  if (!n) return <div className="empty">Sem dados</div>
+  const total = contagens.reduce((a, b) => a + b, 0)
+  const lo = bordas[0], hi = bordas[n]
+  const maxC = Math.max(...contagens)
+  const P = { l: 12, r: 12, t: 22, b: 24 }
+  const iw = w - P.l - P.r, ih = height - P.t - P.b
+  const sx = (v) => P.l + ((v - lo) / (hi - lo || 1)) * iw
+  const bw = iw / n
+  return (
+    <div className="chart" ref={ref}>
+      <svg viewBox={`0 0 ${w} ${height}`} role="img" aria-label={label} onMouseLeave={() => setHover(null)}>
+        {contagens.map((c, i) => {
+          const h = (c / maxC) * ih
+          return (
+            <rect key={i} x={P.l + i * bw + 0.5} y={P.t + ih - h} width={Math.max(1, bw - 1)} height={h} rx="2"
+              fill={cor} opacity={hover === i ? 1 : 0.75} onMouseEnter={() => setHover(i)} />
+          )
+        })}
+        <line className="gridline" x1={P.l} x2={w - P.r} y1={P.t + ih} y2={P.t + ih} />
+        {[0, Math.floor(n / 2), n].map((i, k) => (
+          <text key={k} x={sx(bordas[i])} y={height - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'}>{fmtX(bordas[i], true)}</text>
+        ))}
+        {refs.filter((r) => r.x >= lo && r.x <= hi).map((r, k) => (
+          <g key={r.label}>
+            <line x1={sx(r.x)} x2={sx(r.x)} y1={P.t - 4} y2={P.t + ih} stroke={r.cor || 'var(--text-primary)'} strokeDasharray="4 3" strokeWidth="1.5" />
+            <text x={sx(r.x)} y={12 + (k % 2) * 0} textAnchor={sx(r.x) > w * 0.75 ? 'end' : sx(r.x) < w * 0.25 ? 'start' : 'middle'} style={{ fill: r.cor || undefined }}>{r.label}</text>
+          </g>
+        ))}
+      </svg>
+      {hover != null && (
+        <div className="tooltip" style={{ left: `${Math.min(85, Math.max(15, ((P.l + (hover + 0.5) * bw) / w) * 100))}%`, top: 24 }}>
+          <b className="num">{fmt.pct((contagens[hover] / total) * 100, 1)} dos cenários</b>
+          <span className="muted num">{fmtX(bordas[hover])} a {fmtX(bordas[hover + 1])}</span>
         </div>
       )}
     </div>

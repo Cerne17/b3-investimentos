@@ -24,6 +24,12 @@ export const LABELS = {
   div_liq_ebitda: 'Dív.líq/EBITDA', divida_patrimonio: 'Dívida/PL', liquidez_corrente: 'Liq. corrente',
   crescimento_receita: 'Cresc. receita', crescimento_lucro: 'Cresc. lucro', payout: 'Payout', free_float: 'Free float',
   preco_alvo: 'Preço-alvo', potencial_alvo: 'Potencial', recomendacao: 'Recomendação', num_analistas: 'Analistas',
+  // cripto
+  rank_mercado: 'Rank', preco_usd: 'Preço US$', valor_mercado_usd: 'Valor mercado US$', volume_24h_usd: 'Volume 24h US$',
+  volume_mcap: 'Giro 24h', variacao_24h: 'Var. 24h', variacao_7d: 'Var. 7d', ath_usd: 'Máx. histórica US$',
+  dist_ath: 'Dist. máx. hist.', data_ath: 'Data máx. hist.', oferta_circulante: 'Circulante', oferta_total: 'Oferta total',
+  oferta_maxima: 'Oferta máxima', pct_emitido: '% emitido', fdv_usd: 'FDV US$', mcap_fdv: 'Mcap/FDV', sortino_12m: 'Sortino',
+  correlacao_btc: 'Correl. BTC', beta_btc: 'Beta BTC', yahoo_symbol: 'Yahoo', coingecko_id: 'CoinGecko',
 }
 
 export const TELAS = {
@@ -83,6 +89,34 @@ export const TELAS = {
       { nome: 'Maior potencial (analistas)', f: { min_num_analistas: 5, min_liquidez_media: 1000000 }, ordenar: 'potencial_alvo' },
     ],
   },
+  criptos: {
+    titulo: 'Criptomoedas',
+    subtitulo: 'As maiores criptos por valor de mercado (CoinGecko) com histórico do Yahoo Finance convertido para reais pelo câmbio de cada dia. Risco anualizado com 365 dias.',
+    ordenarPadrao: 'valor_mercado',
+    colunas: ['ticker', 'categoria', 'preco', 'variacao_24h', 'variacao_7d', 'retorno_12m', 'volatilidade_12m',
+      'max_drawdown_12m', 'sharpe_12m', 'correlacao_btc', 'dist_ath', 'valor_mercado', 'liquidez_media'],
+    categorias: null,
+    labels: { liquidez_media: 'Volume 24h', valor_mercado: 'Valor mercado' },
+    filtros: [
+      { col: 'rank_mercado', label: 'Top N (rank máx.)', lado: 'max', step: 10 },
+      { col: 'volatilidade_12m', label: 'Volat. máx. (%)', lado: 'max', step: 5 },
+      { col: 'correlacao_btc', label: 'Correl. BTC máx.', lado: 'max', step: 0.1 },
+      { col: 'mcap_fdv', label: 'Mcap/FDV mín. (%)', lado: 'min', step: 10 },
+      { col: 'liquidez_media', label: 'Volume 24h mín. (R$)', lado: 'min', step: 10000000 },
+    ],
+    atalhos: [
+      { nome: 'Top 20', f: { max_rank_mercado: 20 }, ordenar: 'valor_mercado' },
+      { nome: 'Sem stablecoins', f: { max_rank_mercado: 100, excluir_categoria: 'Stablecoin' }, ordenar: 'valor_mercado' },
+      { nome: 'Melhor Sharpe 12m', f: { min_liquidez_media: 50000000 }, ordenar: 'sharpe_12m' },
+      { nome: 'Menor volatilidade (ex-stable)', f: { excluir_categoria: 'Stablecoin', min_liquidez_media: 50000000 }, ordenar: 'volatilidade_12m', ordem: 'asc' },
+      { nome: 'Descorrelacionadas do BTC', f: { max_correlacao_btc: 0.5, excluir_categoria: 'Stablecoin', min_liquidez_media: 10000000 }, ordenar: 'correlacao_btc', ordem: 'asc' },
+      { nome: 'Longe do topo histórico', f: { max_rank_mercado: 100, excluir_categoria: 'Stablecoin' }, ordenar: 'dist_ath', ordem: 'asc' },
+      { nome: 'Pouca diluição futura', f: { min_mcap_fdv: 90, excluir_categoria: 'Stablecoin' }, ordenar: 'valor_mercado' },
+      { nome: 'Stablecoins', f: { categoria: 'Stablecoin' }, ordenar: 'valor_mercado' },
+      { nome: 'Plataformas (L1)', f: { categoria: 'Plataforma (L1)' }, ordenar: 'valor_mercado' },
+      { nome: 'DeFi', f: { categoria: 'DeFi' }, ordenar: 'valor_mercado' },
+    ],
+  },
   etfs: {
     titulo: 'ETFs',
     subtitulo: 'Fundos de índice listados na B3 com retorno, risco e múltiplos calculados a partir do Yahoo Finance.',
@@ -111,6 +145,14 @@ export const TELAS = {
 
 // Grupos do painel de detalhe
 export const GRUPOS = {
+  criptos: [
+    ['Mercado', ['rank_mercado', 'preco_usd', 'valor_mercado', 'valor_mercado_usd', 'liquidez_media', 'volume_24h_usd', 'volume_mcap', 'variacao_24h', 'variacao_7d']],
+    ['Retorno (em reais)', ['retorno_1m', 'retorno_3m', 'retorno_6m', 'retorno_ytd', 'retorno_12m', 'retorno_24m']],
+    ['Risco', ['volatilidade_12m', 'max_drawdown_12m', 'sharpe_12m', 'sortino_12m', 'correlacao_btc', 'beta_btc', 'beta_ibov', 'correlacao_ibov']],
+    ['Topos e médias', ['ath_usd', 'dist_ath', 'data_ath', 'max_52s', 'min_52s', 'dist_max_52s', 'media_50d', 'media_200d']],
+    ['Oferta (tokenomics)', ['oferta_circulante', 'oferta_total', 'oferta_maxima', 'pct_emitido', 'fdv_usd', 'mcap_fdv']],
+    ['Fontes', ['yahoo_symbol', 'coingecko_id', 'atualizado_em']],
+  ],
   fiis: [
     ['Valuation e renda', ['pvp', 'valor_patrimonial', 'dividend_yield', 'dy_anualizado', 'dy_12m_cvm', 'ultimo_rendimento', 'data_ultimo_rend', 'proventos_12m', 'num_proventos_12m', 'crescimento_proventos']],
     ['Retorno e risco', ['retorno_1m', 'retorno_3m', 'retorno_6m', 'retorno_ytd', 'retorno_12m', 'retorno_24m', 'retorno_total_12m', 'volatilidade_12m', 'max_drawdown_12m', 'sharpe_12m', 'beta_ibov', 'correlacao_ibov']],

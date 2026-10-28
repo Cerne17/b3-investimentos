@@ -3,11 +3,14 @@ import { api } from './api.js'
 import Carteira from './components/Carteira.jsx'
 import Detail from './components/Detail.jsx'
 import Docs from './components/Docs.jsx'
+import HomeBroker from './components/HomeBroker.jsx'
+import MonteCarlo from './components/MonteCarlo.jsx'
 import Live from './components/live/Live.jsx'
 import Overview from './components/Overview.jsx'
 import Screener from './components/Screener.jsx'
 
-const TABS = [['geral', 'Visão geral'], ['acoes', 'Ações'], ['fiis', 'FIIs'], ['etfs', 'ETFs'], ['carteira', 'Carteira'], ['live', 'Tempo real'], ['docs', 'API & MCP']]
+const TABS = [['geral', 'Visão geral'], ['acoes', 'Ações'], ['fiis', 'FIIs'], ['etfs', 'ETFs'], ['criptos', 'Cripto'],
+  ['carteira', 'Carteira'], ['montecarlo', 'Monte Carlo'], ['broker', 'Home Broker'], ['live', 'Tempo real'], ['docs', 'API & MCP']]
 const TEXTO = new Set(['codigo', 'ticker', 'razao_social', 'nome_pregao', 'nome_yahoo', 'status'])
 
 // logomarca: anéis concêntricos em heartwood; no app segue os tokens do tema
@@ -30,6 +33,7 @@ export default function App() {
   const [tab, setTab] = useState(tabDaUrl)
   const [aberto, setAberto] = useState(null)
   const [extras, setExtras] = useState({})
+  const [mcPreset, setMcPreset] = useState(null) // carteira levada da aba Carteira/Home Broker para o Monte Carlo
   // dark ("heartwood core") é o padrão da marca; light ("sapwood") é opcional
   const [tema, setTema] = useState(() => { try { return localStorage.getItem('tema') || 'dark' } catch { return 'dark' } })
 
@@ -40,6 +44,7 @@ export default function App() {
       fiis: m.fundos.map((c) => c.coluna).filter((c) => !TEXTO.has(c)),
       acoes: m.acoes.map((c) => c.coluna).filter((c) => !TEXTO.has(c)),
       etfs: m.etfs.map((c) => c.coluna).filter((c) => !TEXTO.has(c)),
+      criptos: (m.criptos || []).map((c) => c.coluna).filter((c) => !TEXTO.has(c) && !/provento|dividend|rend|alerta|cotas/.test(c)),
     })).catch(() => {})
     return () => window.removeEventListener('hashchange', on)
   }, [])
@@ -49,7 +54,8 @@ export default function App() {
     try { localStorage.setItem('tema', tema) } catch {}
   }, [tema])
 
-  const ir = (k) => { window.location.hash = k; setTab(k) }
+  const ir = (k) => { window.location.hash = k; setTab(k); window.scrollTo(0, 0) }
+  const simular = useCallback((preset) => { setMcPreset({ ...preset, t: Date.now() }); ir('montecarlo') }, [])
   const abrir = useCallback((tipo, codigo) => setAberto({ tipo, codigo }), [])
   const fechar = useCallback(() => setAberto(null), [])
   const escuro = tema === 'dark'
@@ -68,8 +74,10 @@ export default function App() {
       </header>
       <main>
         {tab === 'geral' && <Overview onOpen={abrir} />}
-        {['acoes', 'fiis', 'etfs'].includes(tab) && <Screener tipo={tab} onOpen={abrir} extraCols={extras[tab]} />}
-        {tab === 'carteira' && <Carteira />}
+        {['acoes', 'fiis', 'etfs', 'criptos'].includes(tab) && <Screener tipo={tab} onOpen={abrir} extraCols={extras[tab]} />}
+        {tab === 'carteira' && <Carteira onSimular={simular} onBroker={() => ir('broker')} />}
+        {tab === 'montecarlo' && <MonteCarlo preset={mcPreset} />}
+        {tab === 'broker' && <HomeBroker onOpen={abrir} onSimular={simular} />}
         {tab === 'live' && <Live />}
         {tab === 'docs' && <Docs />}
       </main>

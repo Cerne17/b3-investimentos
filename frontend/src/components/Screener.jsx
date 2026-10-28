@@ -105,7 +105,7 @@ export default function Screener({ tipo, onOpen, extraCols }) {
           <label className="field">Adicionar coluna
             <select value="" onChange={(e) => e.target.value && setCols((c) => [...c, e.target.value])}>
               <option value="">+ coluna</option>
-              {disponiveis.map((c) => <option key={c} value={c}>{LABELS[c] || c}</option>)}
+              {disponiveis.map((c) => <option key={c} value={c}>{tela.labels?.[c] || LABELS[c] || c}</option>)}
             </select>
           </label>
         )}
@@ -139,7 +139,7 @@ export default function Screener({ tipo, onOpen, extraCols }) {
                 return (
                   <th key={c} className={`${['ticker', 'categoria', 'segmento', 'mandato', 'tipo_gestao', 'administrador'].includes(c) ? 'txt' : ''} ${ordenar === key ? 'sorted' : ''}`}
                     onClick={() => sort(c)} title="Ordenar">
-                    {c === 'categoria' && tipo === 'acoes' ? 'Setor' : LABELS[c] || c}{ordenar === key ? (ordem === 'desc' ? ' ↓' : ' ↑') : ''}
+                    {c === 'categoria' && tipo === 'acoes' ? 'Setor' : tela.labels?.[c] || LABELS[c] || c}{ordenar === key ? (ordem === 'desc' ? ' ↓' : ' ↑') : ''}
                   </th>
                 )
               })}

@@ -8,13 +8,14 @@ from typing import Literal
 
 from mcp.server.mcpserver import MCPServer
 
-from . import ingest, portfolio, repository as repo, yahoo
+from . import ingest, montecarlo, portfolio, repository as repo, yahoo
 from .db import SCHEMA, init_db
 
 mcp = MCPServer(
     "b3-fundos",
     instructions=(
-        "Dados de ações, ETFs e FIIs (fundos imobiliários) listados na B3. Use `dicionario_metricas` para ver as colunas. "
+        "Dados de ações, ETFs e FIIs (fundos imobiliários) listados na B3 e das maiores criptomoedas (em reais, ticker BTC-BRL). "
+        "Use `dicionario_metricas` para ver as colunas. "
         "Filtros numéricos: {'coluna': [min, max]} (use null para sem limite). Percentuais estão em % (10 = 10%). "
         "Para cotações ao vivo use `cotacao_tempo_real`. Para perguntas agregadas use `consultar_sql`."
     ),
@@ -79,9 +80,28 @@ def buscar_acoes(
 
 
 @mcp.tool()
+def buscar_criptos(
+    busca: str | None = None,
+    categoria: str | None = None,
+    filtros: Filtros = None,
+    ordenar: str = "valor_mercado",
+    ordem: Literal["asc", "desc"] = "desc",
+    limite: int = 20,
+) -> dict:
+    """Busca criptomoedas (maiores por valor de mercado). Preços e retornos em reais; anualização com 365 dias.
+    categoria: Stablecoin, Reserva de valor, Plataforma (L1), Pagamentos, Layer 2 / escalabilidade, DeFi,
+    Infraestrutura / oráculos, Token de corretora, Meme, Games / metaverso, Derivativo (wrapped/staking), Outros.
+    Métricas: rank_mercado, retorno_12m, volatilidade_12m, max_drawdown_12m, sharpe_12m, sortino_12m, correlacao_btc,
+    beta_btc, beta_ibov, dist_ath, mcap_fdv, pct_emitido, volume_mcap...
+    filtros ex.: {"rank_mercado": [null, 20], "correlacao_btc": [null, 0.6], "mcap_fdv": [80, null]}."""
+    return repo.listar("cripto", busca=busca, categoria=categoria, faixas=_faixas(filtros),
+                       ordenar=ordenar, ordem=ordem, limite=limite)
+
+
+@mcp.tool()
 def detalhes_ativo(codigo: str) -> dict:
-    """Todas as métricas salvas de uma ação, ETF ou FII (ex.: 'PETR4', 'HGLG11', 'BOVA11') + proventos recentes."""
-    for tipo in ("acao", "fii", "etf"):
+    """Todas as métricas salvas de uma ação, ETF, FII ou cripto (ex.: 'PETR4', 'HGLG11', 'BOVA11', 'BTC') + proventos recentes."""
+    for tipo in ("acao", "fii", "etf", "cripto"):
         r = repo.obter(tipo, codigo)
         if r:
             return {"tipo": tipo.upper(), **r}
@@ -96,7 +116,7 @@ def comparar_ativos(codigos: list[str]) -> list[dict]:
 
 @mcp.tool()
 def ranking(
-    tipo: Literal["etf", "fii", "acao"],
+    tipo: Literal["etf", "fii", "acao", "cripto"],
     metrica: str,
     n: int = 10,
     ordem: Literal["asc", "desc"] = "desc",
@@ -123,7 +143,7 @@ def dicionario_metricas() -> dict:
 
 
 @mcp.tool()
-def valores_coluna(tipo: Literal["etf", "fii", "acao"], coluna: str) -> list[dict]:
+def valores_coluna(tipo: Literal["etf", "fii", "acao", "cripto"], coluna: str) -> list[dict]:
     """Valores distintos de uma coluna de texto (ex.: tipo='fii', coluna='segmento' ou 'administrador')."""
     return repo.valores_distintos(tipo, coluna)
 
@@ -173,8 +193,41 @@ def otimizar_carteira(
 
 
 @mcp.tool()
+def simular_carteira_monte_carlo(
+    tickers: list[str],
+    pesos: list[float] | None = None,
+    valor_inicial: float = 10000,
+    aporte_mensal: float = 0,
+    anos: float = 10,
+    meta: float | None = None,
+    inflacao: float = 0.0,
+    metodo: Literal["bootstrap", "normal", "t"] = "bootstrap",
+    simulacoes: int = 3000,
+) -> dict:
+    """Monte Carlo do patrimônio de uma carteira (retorno total, rebalanceada aos pesos; aporte no fim do mês).
+    Retorna percentis do valor final, probabilidade de perda e de superar a renda fixa, CAGR e drawdown por cenário;
+    com `meta`, a chance de atingi-la e o aporte mensal necessário para 50/75/90%. inflacao (0.045 = 4,5%) põe tudo
+    em reais de hoje. Cripto: use o ticker em reais (BTC-BRL)."""
+    r = montecarlo.simular_carteira(tickers, pesos, valor_inicial, aporte_mensal, anos, simulacoes, metodo, meta=meta, inflacao=inflacao)
+    for k in ("bandas", "caminhos", "histograma", "investido", "renda_fixa", "datas"):
+        r.pop(k, None)
+    return r
+
+
+@mcp.tool()
+def simular_preco_monte_carlo(ticker: str, dias: int = 252, metodo: Literal["bootstrap", "normal", "t"] = "bootstrap",
+                              alvo_alta: float = 20, alvo_queda: float = -20) -> dict:
+    """Cone de preço de um ativo por Monte Carlo: percentis do preço no horizonte (pregões; dias corridos para cripto),
+    chance de alta, de tocar +alvo_alta% / alvo_queda% em algum momento e VaR/CVaR 95%."""
+    r = montecarlo.simular_ativo(ticker, dias, metodo=metodo, alvo_alta=alvo_alta, alvo_queda=alvo_queda)
+    for k in ("bandas", "caminhos", "histograma", "historico", "datas"):
+        r.pop(k, None)
+    return r
+
+
+@mcp.tool()
 def buscar_ativos(texto: str, limite: int = 10) -> list[dict]:
-    """Procura ações, ETFs e FIIs pelo código ou nome (ex.: 'itau', 'ouro', 'logística', 'MXRF')."""
+    """Procura ações, ETFs, FIIs e criptos pelo código ou nome (ex.: 'itau', 'ouro', 'logística', 'MXRF', 'solana')."""
     return repo.buscar(texto, limite)
 
 

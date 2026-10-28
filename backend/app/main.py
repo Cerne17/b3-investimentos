@@ -13,16 +13,18 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ingest, portfolio, repository as repo, yahoo
+from . import ingest, montecarlo, portfolio, repository as repo, yahoo
 from .db import ROOT, SOMENTE_LEITURA, init_db
 
 TAGS = [
     {"name": "ETFs", "description": "ETFs listados na B3 armazenados no SQLite."},
     {"name": "FIIs", "description": "Fundos imobiliários listados na B3 (Yahoo + informe mensal CVM)."},
     {"name": "Ações", "description": "Ações e units da B3 (lista do Formulário Cadastral da CVM + fundamentos do Yahoo)."},
+    {"name": "Criptomoedas", "description": "Maiores criptomoedas por valor de mercado (CoinGecko) com histórico do Yahoo Finance convertido para reais. Ticker no app: BTC-BRL."},
     {"name": "Análises", "description": "Resumo, rankings, comparações, dicionário de métricas e SQL livre (somente leitura). Tabelas: etfs, fundos, acoes, proventos e view ativos."},
     {"name": "Tempo real", "description": "Consultas diretas ao Yahoo Finance (cache de 30 s). Aceita qualquer ticker: HGLG11, PETR4, AAPL, ^BVSP, BTC-USD."},
     {"name": "Carteira", "description": "Otimização de carteira (Markowitz, Sharpe, Sortino, Calmar, CVaR, paridade de risco...) com alocação em cotas inteiras."},
+    {"name": "Monte Carlo", "description": "Simulações de patrimônio (carteira com aportes e meta) e cones de preço de um ativo, por bootstrap do histórico, normal ou t de Student."},
     {"name": "Atualização", "description": "Recoleta dados e grava no SQLite."},
 ]
 
@@ -174,8 +176,34 @@ def obter_acao(codigo: str = P(..., examples=["PETR4"])):
     return _obter("acao", codigo)
 
 
+@app.get("/api/criptos", tags=["Criptomoedas"], summary="Lista/filtra criptomoedas")
+def listar_criptos(
+    request: Request,
+    busca: str | None = Query(None, description="Símbolo ou nome"),
+    categoria: str | None = Query(None, description="Stablecoin, Plataforma (L1), DeFi, Meme... (ver /api/criptos/valores/categoria)"),
+    excluir_categoria: str | None = Query(None, description="Ex.: Stablecoin"),
+    max_rank_mercado: int | None = Query(None, description="Só as N maiores por valor de mercado"),
+    min_liquidez_media: float | None = Query(None, description="Volume 24h mínimo (R$)"),
+    max_volatilidade_12m: float | None = Query(None, description="Volatilidade anual máxima (%)"),
+    somente_com_dados: bool = True,
+    ordenar: str = Query("valor_mercado", description="Coluna para ordenar (ver /api/metricas)"),
+    ordem: Ordem = "desc",
+    limite: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """Preços e métricas em **reais** (par em dólar x câmbio do dia; anualização com 365 dias).
+    Qualquer coluna numérica aceita `min_<coluna>` / `max_<coluna>` (ex.: `min_mcap_fdv=80`, `max_correlacao_btc=0.5`)."""
+    return _listar("cripto", request, busca=busca, categoria=categoria, excluir_categoria=excluir_categoria, somente_com_dados=somente_com_dados,
+                   ordenar=ordenar, ordem=ordem, limite=limite, offset=offset)
+
+
+@app.get("/api/criptos/{codigo}", tags=["Criptomoedas"], summary="Detalhe de uma criptomoeda")
+def obter_cripto(codigo: str = P(..., examples=["BTC"])):
+    return _obter("cripto", codigo)
+
+
 @app.get("/api/{tipo}/valores/{coluna}", tags=["Análises"], summary="Valores distintos de uma coluna de texto")
-def valores(tipo: Literal["etfs", "fiis", "acoes"], coluna: str = P(..., examples=["categoria", "segmento", "administrador"])):
+def valores(tipo: Literal["etfs", "fiis", "acoes", "criptos"], coluna: str = P(..., examples=["categoria", "segmento", "administrador"])):
     try:
         return repo.valores_distintos(tipo, coluna)
     except ValueError as e:
@@ -203,7 +231,7 @@ def resumo():
 @app.get("/api/ranking/{tipo}/{metrica}", tags=["Análises"], summary="Top N por uma métrica")
 def ranking(
     request: Request,
-    tipo: Literal["etfs", "fiis", "acoes"],
+    tipo: Literal["etfs", "fiis", "acoes", "criptos"],
     metrica: str = P(..., examples=["dividend_yield"]),
     n: int = Query(10, ge=1, le=100),
     ordem: Ordem = "desc",
@@ -271,6 +299,55 @@ def otimizar_carteira(p: PedidoCarteira):
         raise HTTPException(400, str(e))
 
 
+# ---------------- Monte Carlo ----------------
+
+
+class PedidoMCCarteira(BaseModel):
+    tickers: list[str] = Field(..., min_length=1, examples=[["MXRF11", "GARE11", "GOLD11", "AUVP11"]])
+    pesos: list[float] | None = Field(None, examples=[[0.35, 0.03, 0.34, 0.28]], description="Um peso por ativo (normalizado); vazio = pesos iguais")
+    valor_inicial: float = Field(10000, ge=0, examples=[400])
+    aporte_mensal: float = Field(0, ge=0, examples=[400], description="Aporte no fim de cada mês (corrigido pela inflação, se informada)")
+    anos: float = Field(10, gt=0, le=40)
+    simulacoes: int = Field(5000, ge=100, le=20000)
+    metodo: Literal["bootstrap", "normal", "t"] = "bootstrap"
+    periodo: Literal["2y", "5y", "10y", "max"] = Field("5y", description="Histórico usado para calibrar")
+    meta: float | None = Field(None, gt=0, examples=[100000], description="Patrimônio-alvo (em reais de hoje se houver inflação)")
+    inflacao: float = Field(0.0, ge=0, le=0.5, description="Inflação anual para mostrar valores reais (0.045 = 4,5%)")
+    taxa_livre_risco: float | None = Field(None, description="Renda fixa de comparação (padrão: B3_TAXA_LIVRE_RISCO)")
+    semente: int | None = Field(42, description="Semente do gerador (mesma semente = mesmo resultado)")
+
+
+class PedidoMCAtivo(BaseModel):
+    ticker: str = Field(..., examples=["BTC-BRL"])
+    dias: int = Field(252, ge=5, le=2520, description="Horizonte em pregões (dias corridos para cripto)")
+    simulacoes: int = Field(3000, ge=100, le=10000)
+    metodo: Literal["bootstrap", "normal", "t"] = "bootstrap"
+    periodo: Literal["2y", "5y", "10y", "max"] = "5y"
+    alvo_alta: float = Field(20.0, description="Probabilidade de tocar +X% em algum momento")
+    alvo_queda: float = Field(-20.0, description="Probabilidade de tocar -X% em algum momento")
+    semente: int | None = 42
+
+
+@app.post("/api/montecarlo/carteira", tags=["Monte Carlo"], summary="Simula o patrimônio de uma carteira")
+def mc_carteira(p: PedidoMCCarteira):
+    """Faixas de percentis do patrimônio mês a mês, distribuição final, probabilidade de perda e de bater a renda
+    fixa, CAGR e drawdown por cenário. Com `meta`: probabilidade de atingi-la (no fim e ano a ano), mês mediano
+    em que chega lá e o aporte mensal necessário para 50/75/90% de chance."""
+    try:
+        return montecarlo.simular_carteira(**p.model_dump())
+    except (ValueError, LookupError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/montecarlo/ativo", tags=["Monte Carlo"], summary="Cone de preço de um ativo")
+def mc_ativo(p: PedidoMCAtivo):
+    """Percentis do preço ao longo do horizonte, chance de alta, de tocar os alvos de alta/queda, VaR/CVaR 95%."""
+    try:
+        return montecarlo.simular_ativo(**p.model_dump())
+    except (ValueError, LookupError) as e:
+        raise HTTPException(400, str(e))
+
+
 # ---------------- Tempo real ----------------
 
 
@@ -302,7 +379,7 @@ def cotacoes(tickers: str = Query(..., examples=["HGLG11,BOVA11,IVVB11"])):
 @app.get("/api/tempo-real/historico/{ticker}", tags=["Tempo real"], summary="Histórico de preços (OHLCV)")
 def historico(
     ticker: str = P(..., examples=["BOVA11"]),
-    periodo: Literal["5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"] = "6mo",
+    periodo: Literal["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"] = "6mo",
     intervalo: Literal["1m", "5m", "15m", "30m", "1h", "1d", "1wk", "1mo"] = "1d",
 ):
     return _yahoo(yahoo.historico, ticker, periodo, intervalo)

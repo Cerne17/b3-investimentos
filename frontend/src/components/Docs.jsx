@@ -10,15 +10,19 @@ const ENDPOINTS = [
   ['GET', '/api/fiis/{codigo}', 'Todas as métricas de um FII + proventos recentes'],
   ['GET', '/api/etfs', 'Lista/filtra ETFs — ?categoria=Internacional&max_volatilidade_12m=20'],
   ['GET', '/api/etfs/{codigo}', 'Todas as métricas de um ETF'],
+  ['GET', '/api/criptos', 'Lista/filtra criptos (em R$) — ?max_rank_mercado=20&excluir_categoria=Stablecoin'],
+  ['GET', '/api/criptos/{codigo}', 'Métricas de uma cripto (BTC, BTC-BRL)'],
   ['GET', '/api/ranking/{tipo}/{metrica}', 'Top N — /api/ranking/fiis/pvp?ordem=asc&min_liquidez_media=1000000'],
   ['GET', '/api/comparar', 'Lado a lado — ?codigos=HGLG11,BTLG11,XPLG11'],
   ['GET', '/api/resumo', 'Estatísticas por categoria'],
   ['GET', '/api/metricas', 'Dicionário de todas as colunas'],
   ['GET', '/api/proventos/{codigo}', 'Histórico de proventos'],
-  ['POST', '/api/sql', 'SELECT livre (somente leitura) nas tabelas etfs, fundos, proventos e view ativos'],
+  ['POST', '/api/sql', 'SELECT livre (somente leitura) nas tabelas acoes, etfs, fundos, criptos, proventos e view ativos'],
   ['POST', '/api/carteira/otimizar', 'Markowitz: Sharpe, Sortino, Calmar, CVaR, paridade de risco… + cotas inteiras'],
   ['GET', '/api/carteira/opcoes', 'Indicadores e filosofias de investimento'],
-  ['GET', '/api/busca', 'Autocomplete de ETFs e FIIs — ?q=logística'],
+  ['POST', '/api/montecarlo/carteira', 'Monte Carlo do patrimônio: aportes, inflação, meta e aporte necessário'],
+  ['POST', '/api/montecarlo/ativo', 'Cone de preço: percentis, chance de alta, de tocar alvos, VaR'],
+  ['GET', '/api/busca', 'Autocomplete de ações, ETFs, FIIs e criptos — ?q=logística'],
   ['GET', '/api/tempo-real/cotacao/{ticker}', 'Cotação ao vivo (Yahoo)'],
   ['GET', '/api/tempo-real/cotacoes', 'Várias cotações — ?tickers=HGLG11,BOVA11'],
   ['GET', '/api/tempo-real/historico/{ticker}', 'OHLCV — ?periodo=1y&intervalo=1d'],
@@ -72,7 +76,7 @@ export default function Docs() {
           </div>
           <div className="card">
             <h2>MCP (Claude Desktop, Claude Code, Cursor…)</h2>
-            <p className="muted" style={{ fontSize: 13, margin: 0 }}>Ferramentas: buscar_acoes, buscar_fiis, buscar_etfs, detalhes_ativo, comparar_ativos, ranking, resumo_mercado, consultar_sql, cotacao_tempo_real, historico_precos, otimizar_carteira, buscar_ativos…</p>
+            <p className="muted" style={{ fontSize: 13, margin: 0 }}>Ferramentas: buscar_acoes, buscar_fiis, buscar_etfs, buscar_criptos, simular_carteira_monte_carlo, simular_preco_monte_carlo, detalhes_ativo, comparar_ativos, ranking, resumo_mercado, consultar_sql, cotacao_tempo_real, historico_precos, otimizar_carteira, buscar_ativos…</p>
             <pre className="code">{mcpCfg}</pre>
             <p className="muted" style={{ fontSize: 13 }}>Ou via HTTP: <code>python run_mcp.py --http</code> → <code>http://localhost:8001/mcp</code></p>
           </div>

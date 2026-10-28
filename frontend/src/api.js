@@ -33,5 +33,7 @@ export const api = {
   busca: (q) => req(`/api/busca?${qs({ q, limite: 10 })}`),
   carteiraOpcoes: () => req('/api/carteira/opcoes'),
   otimizar: (body) => req('/api/carteira/otimizar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  mcCarteira: (body) => req('/api/montecarlo/carteira', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  mcAtivo: (body) => req('/api/montecarlo/ativo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   atualizar: (tipo, codigo) => req(`/api/atualizar/${tipo}/${codigo}`, { method: 'POST' }),
 }
