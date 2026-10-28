@@ -287,3 +287,40 @@ a:hover { color: var(--accent-hover); }
 .hb-aloc span { display: inline-flex; align-items: center; min-width: 0; }
 .hb-edit { width: 92px; text-align: right; padding: 3px 6px; font: inherit; font-variant-numeric: tabular-nums; }
 .kpis.compacto .kpi .value { font-size: clamp(18px, 2vw, 22px); overflow-wrap: anywhere; }
+
+/* navegação em dois níveis */
+.tab-count { display: inline-block; margin-left: 6px; min-width: 18px; padding: 0 5px; border-radius: 999px; font-size: 11px; line-height: 18px;
+  text-align: center; background: var(--surface-2); color: var(--text-muted); font-weight: 600; }
+.tab.active .tab-count { background: var(--accent); color: var(--surface-1); }
+.subnav { position: sticky; top: 56px; z-index: 19; display: flex; gap: 4px; padding: 6px 24px; background: var(--surface-1);
+  border-bottom: 1px solid var(--border); }
+.subtab { border: 0; background: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: var(--text-secondary);
+  white-space: nowrap; position: relative; }
+.subtab:hover { background: var(--surface-2); color: var(--text-primary); }
+.subtab.active { color: var(--accent); font-weight: 600; }
+.subtab.active::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: -7px; height: 2px; border-radius: 2px; background: var(--accent); }
+.menu-btn { display: none; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px;
+  padding: 6px 10px; cursor: pointer; min-width: 0; }
+.menu-atual { color: var(--text-secondary); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-atual b { color: var(--text-primary); font-weight: 600; }
+.menu-icone { font-size: 15px; line-height: 1; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.menu-overlay { position: fixed; inset: 56px 0 0; z-index: 25; background: rgb(0 0 0 / .45); }
+.menu-mobile { position: fixed; top: 56px; left: 0; right: 0; z-index: 26; background: var(--surface-1); border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow); padding: 12px 16px 16px; display: grid; gap: 12px; max-height: calc(100vh - 56px); overflow-y: auto; }
+.menu-grupo .eyebrow { margin-bottom: 4px; }
+.menu-itens { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+.menu-mobile .tab { text-align: left; padding: 10px 12px; }
+.menu-solo { width: 100%; }
+
+@media (max-width: 860px) {
+  .topbar .tabs { display: none; }
+  .menu-btn { display: inline-flex; }
+  .topbar .spacer { flex: 1 1 0; }
+  /* no celular a sub-navegação divide a largura: todas as abas da seção ficam visíveis, sem rolagem escondida */
+  .subnav { display: grid; grid-template-columns: repeat(var(--n), 1fr); padding: 6px 12px; gap: 2px; }
+  .subtab { padding: 8px 4px; font-size: 13px; text-align: center; white-space: normal; line-height: 1.2; }
+  .subtab.active { background: var(--accent-soft); }
+  .subtab.active::after { display: none; }
+}
+@media (max-width: 380px) { .menu-atual span, .menu-atual { max-width: 46vw; } }

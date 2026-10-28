@@ -9,8 +9,17 @@ import Live from './components/live/Live.jsx'
 import Overview from './components/Overview.jsx'
 import Screener from './components/Screener.jsx'
 
-const TABS = [['geral', 'Visão geral'], ['acoes', 'Ações'], ['fiis', 'FIIs'], ['etfs', 'ETFs'], ['criptos', 'Cripto'],
-  ['carteira', 'Carteira'], ['montecarlo', 'Monte Carlo'], ['broker', 'Home Broker'], ['live', 'Tempo real'], ['docs', 'API & MCP']]
+// navegação em dois níveis: seções no topo e, nos grupos, as abas da seção logo abaixo
+const NAV = [
+  { k: 'geral', l: 'Visão geral' },
+  { k: 'mercado', l: 'Mercado', itens: [['acoes', 'Ações'], ['fiis', 'FIIs'], ['etfs', 'ETFs'], ['criptos', 'Cripto']] },
+  { k: 'investir', l: 'Investir', itens: [['carteira', 'Carteira'], ['montecarlo', 'Monte Carlo'], ['broker', 'Home Broker']] },
+  { k: 'live', l: 'Tempo real' },
+  { k: 'docs', l: 'API & MCP' },
+]
+const TABS = NAV.flatMap((g) => g.itens || [[g.k, g.l]])
+const grupoDe = (tab) => NAV.find((g) => (g.itens ? g.itens.some(([k]) => k === tab) : g.k === tab))
+const rotulo = (tab) => TABS.find(([k]) => k === tab)?.[1]
 const TEXTO = new Set(['codigo', 'ticker', 'razao_social', 'nome_pregao', 'nome_yahoo', 'status'])
 
 // logomarca: anéis concêntricos em heartwood; no app segue os tokens do tema
@@ -33,6 +42,9 @@ export default function App() {
   const [tab, setTab] = useState(tabDaUrl)
   const [aberto, setAberto] = useState(null)
   const [extras, setExtras] = useState({})
+  const [menu, setMenu] = useState(false)
+  // última aba visitada em cada grupo: clicar em "Mercado" volta para onde o usuário estava
+  const [ultima, setUltima] = useState({})
   const [mcPreset, setMcPreset] = useState(null) // carteira levada da aba Carteira/Home Broker para o Monte Carlo
   // dark ("heartwood core") é o padrão da marca; light ("sapwood") é opcional
   const [tema, setTema] = useState(() => { try { return localStorage.getItem('tema') || 'dark' } catch { return 'dark' } })
@@ -54,7 +66,16 @@ export default function App() {
     try { localStorage.setItem('tema', tema) } catch {}
   }, [tema])
 
-  const ir = (k) => { window.location.hash = k; setTab(k); window.scrollTo(0, 0) }
+  const ir = (k) => { window.location.hash = k; setTab(k); setMenu(false); window.scrollTo(0, 0) }
+  const grupo = grupoDe(tab)
+  useEffect(() => { if (grupo?.itens) setUltima((u) => ({ ...u, [grupo.k]: tab })) }, [tab])
+  useEffect(() => {
+    if (!menu) return
+    const esc = (e) => e.key === 'Escape' && setMenu(false)
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [menu])
+  const abrirGrupo = (g) => ir(g.itens ? ultima[g.k] || g.itens[0][0] : g.k)
   const simular = useCallback((preset) => { setMcPreset({ ...preset, t: Date.now() }); ir('montecarlo') }, [])
   const abrir = useCallback((tipo, codigo) => setAberto({ tipo, codigo }), [])
   const fechar = useCallback(() => setAberto(null), [])
@@ -66,12 +87,50 @@ export default function App() {
         <a className="brand" href="#geral" style={{ color: 'inherit', textDecoration: 'none' }}>
           <Logo />B3<span className="full muted" style={{ fontWeight: 500 }}>· cerne.pro</span>
         </a>
-        <nav className="tabs">
-          {TABS.map(([k, l]) => <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => ir(k)}>{l}</button>)}
+        <nav className="tabs" aria-label="Seções">
+          {NAV.map((g) => (
+            <button key={g.k} className={`tab ${grupo?.k === g.k ? 'active' : ''}`} aria-current={grupo?.k === g.k ? 'page' : undefined}
+              onClick={() => abrirGrupo(g)}>
+              {g.l}{g.itens && <span className="tab-count" aria-hidden="true">{g.itens.length}</span>}
+            </button>
+          ))}
         </nav>
         <span className="spacer" />
+        <button className="menu-btn" onClick={() => setMenu((m) => !m)} aria-expanded={menu} aria-controls="menu-mobile">
+          <span className="menu-atual">{grupo?.itens ? `${grupo.l} · ` : ''}<b>{rotulo(tab)}</b></span>
+          <span className="menu-icone" aria-hidden="true">{menu ? '✕' : '☰'}</span>
+          <span className="sr-only">Menu</span>
+        </button>
         <button className="icon-btn" onClick={() => setTema(escuro ? 'light' : 'dark')} aria-label="Alternar tema">{escuro ? '☀' : '☾'}</button>
       </header>
+      {menu && (
+        <>
+          <div className="menu-overlay" onClick={() => setMenu(false)} />
+          <nav id="menu-mobile" className="menu-mobile" aria-label="Todas as seções">
+            {NAV.map((g) => (
+              <div key={g.k} className="menu-grupo">
+                {g.itens ? (
+                  <>
+                    <div className="eyebrow">{g.l}</div>
+                    <div className="menu-itens">
+                      {g.itens.map(([k, l]) => <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => ir(k)}>{l}</button>)}
+                    </div>
+                  </>
+                ) : (
+                  <button className={`tab menu-solo ${tab === g.k ? 'active' : ''}`} onClick={() => ir(g.k)}>{g.l}</button>
+                )}
+              </div>
+            ))}
+          </nav>
+        </>
+      )}
+      {grupo?.itens && (
+        <nav className="subnav" aria-label={grupo.l} style={{ '--n': grupo.itens.length }}>
+          {grupo.itens.map(([k, l]) => (
+            <button key={k} className={`subtab ${tab === k ? 'active' : ''}`} aria-current={tab === k ? 'page' : undefined} onClick={() => ir(k)}>{l}</button>
+          ))}
+        </nav>
+      )}
       <main>
         {tab === 'geral' && <Overview onOpen={abrir} />}
         {['acoes', 'fiis', 'etfs', 'criptos'].includes(tab) && <Screener tipo={tab} onOpen={abrir} extraCols={extras[tab]} />}
