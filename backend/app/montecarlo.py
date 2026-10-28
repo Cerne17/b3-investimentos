@@ -14,7 +14,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from .portfolio import retornos_alinhados
+from .portfolio import exigir_historico, retornos_alinhados
 from .yahoo import TAXA_LIVRE_RISCO, ajustar_splits, cotacao, eh_cripto, history
 
 METODOS = {
@@ -93,9 +93,8 @@ def simular_carteira(
     w = w / w.sum()
     rf = TAXA_LIVRE_RISCO if taxa_livre_risco is None else taxa_livre_risco
 
-    R_df, _, dias_ano = retornos_alinhados(tickers, periodo)
-    if len(R_df) < 120:
-        raise ValueError("Histórico comum insuficiente (menos de 120 dias em comum).")
+    R_df, series, dias_ano = retornos_alinhados(tickers, periodo)
+    exigir_historico(R_df, tickers, series, 120)
     r = R_df.to_numpy() @ w  # carteira rebalanceada aos pesos-alvo
 
     meses = max(1, round(anos * 12))
@@ -219,7 +218,9 @@ def simular_ativo(
     close = hist["Close"].dropna()
     r = close.pct_change().dropna().to_numpy()
     if len(r) < 120:
-        raise ValueError("Histórico insuficiente (menos de 120 dias).")
+        raise ValueError(
+            f"Histórico insuficiente: {ticker} tem {len(r)} dias de retorno desde {close.index[0]:%d/%m/%Y}, mínimo 120."
+        )
     try:
         p0 = float(cotacao(ticker)["preco"]) or float(close.iloc[-1])
     except Exception:

@@ -107,6 +107,23 @@ def retornos_alinhados(tickers: list[str], periodo: str) -> tuple[pd.DataFrame, 
     return R_df, series, 365 if so_cripto else DIAS
 
 
+def exigir_historico(R_df: pd.DataFrame, tickers: list[str], series: list, minimo: int) -> None:
+    """Falha com uma mensagem que aponta quais ativos encurtam o histórico em comum."""
+    if len(R_df) >= minimo:
+        return
+    inicio = {t: s[0].index[0] for t, s in zip(tickers, series)}
+    curtos = [t for t, s in zip(tickers, series) if len(s[0]) - 1 < minimo]
+    if not curtos:  # todos têm histórico, mas pouco em comum: culpa de quem começa mais tarde
+        curtos = [max(inicio, key=inicio.get)]
+    detalhe = ", ".join(
+        f"{t} (desde {inicio[t]:%d/%m/%Y}, {len(s[0])} pregões)" for t, s in zip(tickers, series) if t in curtos
+    )
+    raise ValueError(
+        f"Histórico comum insuficiente: {len(R_df)} dias em comum, mínimo {minimo}. "
+        f"Limitado por {detalhe}. Remova esse ativo da simulação ou aguarde mais pregões."
+    )
+
+
 # ---------- métricas de uma carteira ----------
 
 def metricas(w: np.ndarray, R: np.ndarray, dy: np.ndarray, rf: float, DIAS: int = DIAS) -> dict:
@@ -287,8 +304,7 @@ def otimizar(
     rf = TAXA_LIVRE_RISCO if taxa_livre_risco is None else taxa_livre_risco
 
     R_df, series, dias = retornos_alinhados(tickers, periodo)
-    if len(R_df) < 60:
-        raise ValueError("Histórico comum insuficiente (menos de 60 pregões em comum).")
+    exigir_historico(R_df, tickers, series, 60)
     R = R_df.to_numpy()
     mu = R.mean(axis=0) * dias
     cov = np.cov(R, rowvar=False) * dias
