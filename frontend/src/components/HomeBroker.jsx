@@ -211,7 +211,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
           <button className="btn" onClick={() => criar('Carteira de exemplo', EXEMPLO)}>Começar com um exemplo</button>
           <button className="btn" onClick={() => arquivo.current?.click()}>Importar JSON</button>
           <input ref={arquivo} type="file" accept="application/json,.json" hidden onChange={importar} />
-          <span className="muted" style={{ fontSize: 13 }}>Também dá para trazer uma carteira otimizada pela aba Carteira.</span>
+          <span className="muted" style={{ fontSize: 13 }}>Também dá para trazer uma carteira otimizada pela aba Markowitz.</span>
         </div>
       </>
     )

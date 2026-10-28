@@ -141,11 +141,11 @@ bisseção sem simular de novo).
 Aba de acompanhamento (sem ordens): várias carteiras com quantidade e preço médio, cotações a cada 30 s, variação do
 dia, resultado por ativo, renda passiva estimada pelos proventos de 12 meses, alocação por ativo e por classe e o valor
 da carteira atual ao longo do dia/semana/mês/ano. As carteiras ficam no `localStorage` do navegador (exportar/importar
-JSON); a aba Carteira manda uma carteira otimizada direto para o Home Broker ou para o Monte Carlo.
+JSON); a aba Markowitz manda uma carteira otimizada direto para o Home Broker ou para o Monte Carlo.
 
-## Carteira (Markowitz)
+## Markowitz
 
-`POST /api/carteira/otimizar` — e a aba **Carteira** do dashboard — otimizam uma carteira com retornos diários
+`POST /api/carteira/otimizar` — e a aba **Markowitz** do dashboard — otimizam uma carteira com retornos diários
 totais (preço + proventos reinvestidos, ajustados por desdobramentos) e convertem os pesos em **cotas inteiras ao
 preço atual** (busca local que minimiza o desvio em R$ do alvo e a sobra, sem passar do peso máximo).
 

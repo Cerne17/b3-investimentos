@@ -15,7 +15,7 @@ export function salvar(estado) {
   return estado
 }
 
-// cria uma carteira (ex.: vinda da aba Carteira) e a torna ativa
+// cria uma carteira (ex.: vinda da aba Markowitz) e a torna ativa
 export function novaCarteira(nome, posicoes = []) {
   const e = carregar()
   const c = { id: id(), nome: nome || `Carteira ${e.carteiras.length + 1}`, posicoes: limpar(posicoes), criada: new Date().toISOString() }

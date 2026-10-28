@@ -13,7 +13,7 @@ import Screener from './components/Screener.jsx'
 const NAV = [
   { k: 'geral', l: 'Visão geral' },
   { k: 'mercado', l: 'Mercado', itens: [['acoes', 'Ações'], ['fiis', 'FIIs'], ['etfs', 'ETFs'], ['criptos', 'Cripto']] },
-  { k: 'investir', l: 'Investir', itens: [['carteira', 'Carteira'], ['montecarlo', 'Monte Carlo'], ['broker', 'Home Broker']] },
+  { k: 'investir', l: 'Investir', itens: [['carteira', 'Markowitz'], ['montecarlo', 'Monte Carlo'], ['broker', 'Home Broker']] },
   { k: 'live', l: 'Tempo real' },
   { k: 'docs', l: 'API & MCP' },
 ]
@@ -45,7 +45,7 @@ export default function App() {
   const [menu, setMenu] = useState(false)
   // última aba visitada em cada grupo: clicar em "Mercado" volta para onde o usuário estava
   const [ultima, setUltima] = useState({})
-  const [mcPreset, setMcPreset] = useState(null) // carteira levada da aba Carteira/Home Broker para o Monte Carlo
+  const [mcPreset, setMcPreset] = useState(null) // carteira levada do Markowitz/Home Broker para o Monte Carlo
   // dark ("heartwood core") é o padrão da marca; light ("sapwood") é opcional
   const [tema, setTema] = useState(() => { try { return localStorage.getItem('tema') || 'dark' } catch { return 'dark' } })
 

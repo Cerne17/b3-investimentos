@@ -274,7 +274,7 @@ export default function MonteCarlo({ preset }) {
           </>
         ) : (
           <>
-            {origem && <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>Pesos trazidos da aba Carteira: <b>{origem}</b></div>}
+            {origem && <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>Carteira trazida: <b>{origem}</b></div>}
             <div className="filters" style={{ marginBottom: 8 }}><BuscaAtivo onAdd={add} label="Adicionar ativo" /></div>
             <Pesos itens={itens} setItens={setItens} />
             <div className="filters">
