@@ -227,10 +227,44 @@ def simular_carteira(
             W[:, m + 1] = W[:, m] * G[:, m] + (1 if m >= macc else 0)
     V = valor_inicial * I + aporte_mensal * B
     vivo = np.ones((n, meses + 1), bool)
+    s_max_ir = None
     if msaq:
         V = V - saque_mensal * W
         vivo = np.minimum.accumulate(V > 0, axis=1)  # zerou uma vez, acabou
         V = np.where(vivo, V, 0.0)
+    if msaq and ir:
+        # Com IR, cada saque vende cotas com lucro embutido: para receber `s` líquido é preciso vender s / (1 - t·f),
+        # f = fração de lucro no patrimônio (1 - custo/valor). O custo é acompanhado em reais de hoje (a inflação o
+        # corrói, então o ganho nominal tributado é maior que o real). Não é linear no saque: simula mês a mês.
+        tg = float(w @ np.array(tx["ganho"]))
+        custo0 = sum((valor_inicial if k == 0 else aporte_mensal) / deflator ** (macc - k) for k in range(macc + 1))
+        v_ini = valor_inicial * I[:, macc] + aporte_mensal * B[:, macc]
+
+        def saques(sq):
+            v, c = v_ini.copy(), np.full(n, custo0)
+            ok, trilha = np.ones(n, bool), [v.copy()]
+            for m in range(macc, meses):
+                v, c = v * G[:, m], c / deflator
+                f = np.clip(1 - c / np.maximum(v, 1e-9), 0, 1)
+                bruto = sq / (1 - tg * f)
+                c = c - bruto * c / np.maximum(v, 1e-9)
+                v = v - bruto
+                ok &= v > 0
+                v, c = np.where(ok, v, 0.0), np.where(ok, c, 0.0)
+                trilha.append(v)
+            return np.array(trilha).T, ok
+
+        Vs, _ = saques(np.full(n, float(saque_mensal)))
+        V[:, macc:] = Vs
+        vivo[:, macc:] = np.minimum.accumulate(Vs > 0, axis=1) & vivo[:, macc:macc + 1]
+        # saque máximo líquido de cada cenário (bisseção vetorizada; o teto é o máximo sem IR)
+        A_ = valor_inicial * I[:, macc + 1:] + aporte_mensal * B[:, macc + 1:]
+        lo, hi = np.zeros(n), np.maximum((A_ / W[:, macc + 1:]).min(axis=1), 0)
+        for _ in range(25):
+            mid = (lo + hi) / 2
+            _, ok = saques(mid)
+            lo, hi = np.where(ok, mid, lo), np.where(ok, hi, mid)
+        s_max_ir = lo
     renda = V[:, :-1] * Y  # proventos de cada mês (n, meses), em reais de hoje se houver inflação
     jan = np.minimum(np.arange(1, meses + 1), 12)
     c = np.concatenate([np.zeros((n, 1)), np.cumsum(renda, axis=1)], axis=1)
@@ -344,7 +378,7 @@ def simular_carteira(
         # Para cada cenário, o maior saque que nunca zera o patrimônio: V_t = A_t - s·W_t > 0 em todo mês de saque
         # ⇒ s < min_t A_t / W_t. O saque seguro para p% de chance é o percentil (100 - p) desse máximo.
         A = valor_inicial * I[:, macc + 1:] + aporte_mensal * B[:, macc + 1:]
-        s_max = (A / W[:, macc + 1:]).min(axis=1)
+        s_max = (A / W[:, macc + 1:]).min(axis=1) if s_max_ir is None else s_max_ir
         inicio = valor_inicial * I[:, macc] + aporte_mensal * B[:, macc]
         acabou = ~vivo[:, -1]
         mes_fim = np.where(acabou, vivo[:, macc:].sum(axis=1), -1)  # meses de saque até zerar
@@ -356,6 +390,7 @@ def simular_carteira(
             "anos_ate_acabar_mediana": r2(np.median(mes_fim[acabou]) / 12) if acabou.any() else None,
             "saque_seguro": {str(p): r2(max(0.0, np.percentile(s_max, 100 - p))) for p in (95, 90, 75, 50)},
             "regra_4pct": r2(np.median(inicio) * 0.04 / 12),
+            "saques_liquidos_de_ir": bool(ir),
             "sacado": pct(sacado),
         }
 

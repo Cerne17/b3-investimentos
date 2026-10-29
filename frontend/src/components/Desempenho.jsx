@@ -15,24 +15,68 @@ function Kpi({ label, value, sub, className = '' }) {
   )
 }
 
-// Desempenho real a partir das operações: TWR x índices, TIR, lucro e proventos recebidos.
-export default function Desempenho({ transacoes }) {
+// Busca o desempenho real das operações (com debounce): usado pelo painel e pelas posições ajustadas.
+export function useDesempenho(transacoes) {
   const [d, setD] = useState(null)
   const [erro, setErro] = useState(null)
-  const [vista, setVista] = useState('rentabilidade')
-  const [bench, setBench] = useState('CDI')
-  const chave = JSON.stringify(transacoes.map((t) => [t.data, t.ticker, t.tipo, t.quantidade, t.preco]))
-
+  const chave = JSON.stringify(transacoes.map((t) => [t.data, t.ticker, t.tipo, t.quantidade, t.preco, t.evento]))
   useEffect(() => {
     if (!transacoes.length) { setD(null); return }
     let vivo = true
     setErro(null)
     const t = setTimeout(() => {
-      api.desempenho({ transacoes: transacoes.map(({ data, ticker, tipo, quantidade, preco }) => ({ data, ticker, tipo, quantidade, preco })) })
+      api.desempenho({ transacoes: transacoes.map(({ data, ticker, tipo, quantidade, preco, evento }) => ({ data, ticker, tipo, quantidade, preco, evento: evento || null })) })
         .then((r) => vivo && setD(r)).catch((e) => vivo && setErro(e.message))
     }, 400)
     return () => { vivo = false; clearTimeout(t) }
   }, [chave])
+  return [d, erro]
+}
+
+// Apuração mensal do IR sobre vendas (DARF), a partir das operações.
+export function ImpostoVendas({ d }) {
+  const meses = d?.ir?.meses || []
+  if (!meses.length) return null
+  const comImposto = meses.filter((m) => m.imposto > 0 || m.darf > 0).length
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h2 style={{ marginTop: 0 }}>Imposto de renda sobre vendas</h2>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>
+        {comImposto ? <>DARF no período: <b className="num">{fmt.brl(d.ir.total_darf)}</b></> : 'Nenhum mês com imposto a pagar'}
+        {d.ir.a_pagar_acumulado > 0 && <> · {fmt.brl(d.ir.a_pagar_acumulado)} acumulado (abaixo de R$ 10, vai para o próximo DARF)</>}
+      </div>
+      <div className="table-wrap cartoes" style={{ border: 0 }}>
+        <table>
+          <thead><tr><th className="txt">Mês</th><th className="txt">Vendas</th><th className="txt">Lucro</th><th>Isento</th><th>Imposto</th><th>DARF</th><th className="txt">Prejuízo a compensar</th></tr></thead>
+          <tbody>
+            {[...meses].reverse().map((m) => (
+              <tr key={m.mes} style={{ cursor: 'default' }}>
+                <td className="txt" data-label="Mês">{m.mes.slice(5)}/{m.mes.slice(0, 4)}</td>
+                <td className="txt" data-label="Vendas">{Object.entries(m.vendas).map(([c, v]) => `${c} ${fmt.brl(v)}`).join(' · ')}</td>
+                <td className="txt" data-label="Lucro">{Object.entries(m.lucro).map(([c, v]) => <span key={c} className={signClass(v)}>{c} {fmt.brl(v)} </span>)}</td>
+                <td className="num" data-label="Isento">{m.isento ? fmt.brl(m.isento) : '—'}</td>
+                <td className="num" data-label="Imposto">{m.imposto ? fmt.brl(m.imposto) : '—'}</td>
+                <td className="num" data-label="DARF"><b>{m.darf ? fmt.brl(m.darf) : '—'}</b></td>
+                <td className="txt" data-label="Prejuízo">{[['comum', 'Ações/ETFs'], ['fii', 'FIIs'], ['cripto', 'Cripto']].filter(([k]) => m.prejuizo_acumulado[k] > 0)
+                  .map(([k, l]) => `${l} ${fmt.brl(m.prejuizo_acumulado[k])}`).join(' · ') || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+        Operações comuns de pessoa física, pelo custo médio: ações isentas se as vendas de ações do mês somam até R$ 20 mil; ETFs e BDRs 15%
+        sem isenção; FIIs 20%; cripto 15% com isenção até R$ 35 mil/mês. Prejuízo compensa lucro futuro da mesma categoria. Day trade,
+        renda fixa e Tesouro (IR retido na fonte) não entram. Confira com seu contador — é uma estimativa.
+      </p>
+    </div>
+  )
+}
+
+// Desempenho real a partir das operações: TWR x índices, TIR, lucro e proventos recebidos.
+export default function Desempenho({ transacoes, d, erro }) {
+  const [vista, setVista] = useState('rentabilidade')
+  const [bench, setBench] = useState('CDI')
 
   if (!transacoes.length) return null
   const t = d?.totais

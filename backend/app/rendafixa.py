@@ -10,6 +10,7 @@ daquele dia em "cotas"):
 Dias úteis = datas publicadas da série do CDI. O IPCA é mensal: distribuído pelos dias úteis do mês; meses ainda sem
 IPCA publicado usam a média mensal dos últimos 12 meses.
 """
+import io
 import re
 import threading
 import time
@@ -28,7 +29,9 @@ _trava = threading.Lock()
 
 
 def eh_renda_fixa(ticker: str) -> bool:
-    return bool(PADRAO.match(ticker.upper().strip()))
+    """Índices sintéticos (CDI, IPCA+6...) e títulos do Tesouro Direto (TD-IPCA-2035...)."""
+    t = ticker.upper().strip()
+    return bool(PADRAO.match(t) or TD.match(t))
 
 
 def _num(s: str | None) -> float | None:
@@ -160,6 +163,8 @@ PERIODOS = {"1d": 5, "5d": 7, "1mo": 31, "3mo": 92, "6mo": 183, "1y": 366, "2y":
 
 def history(ticker: str, period: str = "2y") -> pd.DataFrame:
     """Mesmo formato do histórico do Yahoo (OHLC = índice, sem volume nem proventos), um ponto por dia útil."""
+    if TD.match(ticker.upper().strip()):
+        return _td_history(ticker, period)
     s = indice(ticker)
     if period == "ytd":
         s = s[s.index >= pd.Timestamp(date.today().year, 1, 1)]
@@ -172,13 +177,15 @@ def history(ticker: str, period: str = "2y") -> pd.DataFrame:
 
 def taxa_anual(ticker: str) -> float:
     """Rentabilidade anualizada dos últimos 12 meses (%)."""
-    s = indice(ticker)
+    s = _td_serie(ticker)["pu"] if TD.match(ticker.upper().strip()) else indice(ticker)
     um_ano = s[s.index >= s.index[-1] - pd.Timedelta(days=365)]
     return round((float(um_ano.iloc[-1] / um_ano.iloc[0]) - 1) * 100, 2)
 
 
 def nome(ticker: str) -> str:
     t = ticker.upper().strip()
+    if TD.match(t):
+        return _td_nome(t)
     m = PADRAO.match(t)
     if t == "SELIC":
         return "Tesouro Selic (taxa Selic)"
@@ -191,6 +198,8 @@ def nome(ticker: str) -> str:
 
 
 def cotacao(ticker: str) -> dict:
+    if TD.match(ticker.upper().strip()):
+        return _td_cotacao(ticker)
     s = indice(ticker)
     preco, ant = float(s.iloc[-1]), float(s.iloc[-2])
     return {
@@ -208,13 +217,21 @@ PALAVRAS = ("cdi", "selic", "ipca", "pre", "tesouro", "cdb", "lci", "lca", "rend
 def buscar(q: str) -> list[dict]:
     """Sugestões de renda fixa para o autocomplete (o usuário pode digitar outras taxas: IPCA+6.8, CDI-95...)."""
     ql, qu = q.lower().strip(), q.upper().strip()
-    digitado = eh_renda_fixa(qu)
+    td = []
+    if TD.match(qu) or any(w in ql for w in ("tesouro", "td-", "td ", "ntn", "lft", "ltn", "renda+", "educa+")) or ql == "td":
+        try:
+            td = _td_buscar(ql.replace("td-", " ").replace("-", " "))
+        except Exception:
+            td = []
+        if TD.match(qu) and qu not in [x["ticker"] for x in td]:
+            td = [{"tipo": "RF", "codigo": qu, "ticker": qu, "nome_pregao": qu, "categoria": "Tesouro Direto", "preco": None, "status": "ok"}] + td
+    digitado = bool(PADRAO.match(qu))
     if not digitado and (len(ql) < 2 or not any(p.startswith(ql) or ql.startswith(p) for p in PALAVRAS)):
-        return []
+        return td
     alvo = [t for t in SUGESTOES if t.startswith(qu)] or SUGESTOES
     if digitado and qu not in alvo:
         alvo = [qu] + alvo
-    out = []
+    out = list(td)
     for t in alvo:
         try:
             preco = float(indice(t).iloc[-1])
@@ -222,4 +239,170 @@ def buscar(q: str) -> list[dict]:
             preco = None
         out.append({"tipo": "RF", "codigo": t, "ticker": t, "nome_pregao": nome(t), "categoria": "Renda fixa",
                     "preco": preco, "status": "ok" if preco else "sem_dados"})
+    return out
+
+
+# ---------- Tesouro Direto: títulos com preço de mercado (marcação a mercado) ----------
+# Ticker TD-<tipo>-<ano de vencimento>: TD-SELIC-2029, TD-PRE-2031, TD-PREJ-2035, TD-IPCA-2035, TD-IPCAJ-2045,
+# TD-IGPMJ-2031, TD-RENDA-2059, TD-EDUCA-2040. O preço é o PU base diário do Tesouro Transparente (o que o título
+# vale se vendido antes do vencimento); nos títulos com juros semestrais o cupom entra como provento.
+
+TD = re.compile(r"^TD-(SELIC|PRE|PREJ|IPCA|IPCAJ|IGPMJ|RENDA|EDUCA)-(\d{4})$")
+TD_TIPOS = {
+    "SELIC": "Tesouro Selic", "PRE": "Tesouro Prefixado", "PREJ": "Tesouro Prefixado com Juros Semestrais",
+    "IPCA": "Tesouro IPCA+", "IPCAJ": "Tesouro IPCA+ com Juros Semestrais", "IGPMJ": "Tesouro IGPM+ com Juros Semestrais",
+    "RENDA": "Tesouro Renda+ Aposentadoria Extra", "EDUCA": "Tesouro Educa+",
+}
+TD_SIGLA = {v: k for k, v in TD_TIPOS.items()}
+TD_CSV = ("https://www.tesourotransparente.gov.br/ckan/dataset/df56aa42-484a-4a59-8184-7676580c81e3/resource/"
+          "796d2059-14e9-44e3-80c9-2d9e30b405c1/download/PrecoTaxaTesouroDireto.csv")
+TD_DESDE = "2012-01-01"
+
+
+def eh_tesouro(ticker: str) -> bool:
+    return bool(TD.match(ticker.upper().strip()))
+
+
+def ticker_tesouro(titulo: str, vencimento: str) -> str | None:
+    """("Tesouro IPCA+", "2035-05-15") ou o nome do produto no extrato da B3 ("Tesouro IPCA+ 2035") → TD-IPCA-2035."""
+    nome = re.sub(r"\s+", " ", titulo).strip()
+    ano = (re.search(r"(20\d{2})", vencimento or nome) or [None, None])[1]
+    base = re.sub(r"\s*20\d{2}\s*$", "", nome).strip()
+    base = re.sub(r"(?i)^tesouro renda\+.*", "Tesouro Renda+ Aposentadoria Extra", base)
+    base = re.sub(r"(?i)^tesouro educa\+.*", "Tesouro Educa+", base)
+    for t, sigla in TD_SIGLA.items():
+        if base.lower() == t.lower():
+            return f"TD-{sigla}-{ano}" if ano else None
+    return None
+
+
+def salvar_tesouro() -> int:
+    """Ingestão: histórico de preços e taxas de todos os títulos (desde 2012) do Tesouro Transparente."""
+    from .db import connect
+    with httpx.Client(timeout=180, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (b3-investimentos)"}) as cli:
+        r = cli.get(TD_CSV)
+        r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.content.decode("latin-1")), sep=";", decimal=",")
+    df.columns = ["titulo", "vencimento", "data", "taxa_compra", "taxa_venda", "pu_compra", "pu_venda", "pu"]
+    for c in ("vencimento", "data"):
+        df[c] = pd.to_datetime(df[c], dayfirst=True).dt.strftime("%Y-%m-%d")
+    df = df[(df["data"] >= TD_DESDE) & (df["pu"] > 0)]
+    titulos = df.groupby(["titulo", "vencimento"])["data"].agg(["min", "max"]).reset_index()
+    titulos["id"] = range(1, len(titulos) + 1)
+    df = df.merge(titulos[["titulo", "vencimento", "id"]], on=["titulo", "vencimento"])
+    df["dia"] = (pd.to_datetime(df["data"]) - pd.Timestamp("1970-01-01")).dt.days
+    with connect() as conn:
+        conn.execute("DELETE FROM tesouro")
+        conn.execute("DELETE FROM tesouro_titulos")
+        conn.executemany("INSERT INTO tesouro_titulos (id, titulo, vencimento, inicio, fim) VALUES (?, ?, ?, ?, ?)",
+                         titulos[["id", "titulo", "vencimento", "min", "max"]].itertuples(index=False, name=None))
+        conn.executemany("INSERT OR REPLACE INTO tesouro (id, dia, pu, taxa) VALUES (?, ?, ?, ?)",
+                         ((int(a), int(b), round(float(c), 4), None if pd.isna(d) else round(float(d), 2))
+                          for a, b, c, d in df[["id", "dia", "pu", "taxa_venda"]].itertuples(index=False, name=None)))
+    _cache.pop("td_lista", None)
+    return len(df)
+
+
+def _td_lista() -> pd.DataFrame:
+    """Títulos na base: titulo, vencimento, primeira e última data, último PU e taxa."""
+    hit = _cache.get("td_lista")
+    if hit and time.time() - hit[0] < TTL:
+        return hit[1]
+    from .db import connect
+    with connect(readonly=True) as conn:
+        rows = conn.execute("SELECT id, titulo, vencimento, inicio, fim FROM tesouro_titulos").fetchall()
+    df = pd.DataFrame([dict(r) for r in rows])
+    if not df.empty:
+        df["ticker"] = [ticker_tesouro(t, v) for t, v in zip(df["titulo"], df["vencimento"])]
+    _cache["td_lista"] = (time.time(), df)
+    return df
+
+
+def _td_titulo(ticker: str) -> tuple[str, str, int]:
+    m = TD.match(ticker.upper().strip())
+    if not m:
+        raise LookupError(f"{ticker} não é um título do Tesouro Direto (ex.: TD-IPCA-2035)")
+    lista = _td_lista()
+    cand = lista[(lista["titulo"] == TD_TIPOS[m.group(1)]) & (lista["vencimento"].str.startswith(m.group(2)))] if not lista.empty else lista
+    if cand.empty:
+        raise LookupError(f"{ticker}: título não encontrado no histórico do Tesouro Direto")
+    r = cand.sort_values("fim").iloc[-1]
+    return r["titulo"], r["vencimento"], int(r["id"])
+
+
+def _td_serie(ticker: str) -> pd.DataFrame:
+    t = ticker.upper().strip()
+    chave = ("td", t)
+    hit = _cache.get(chave)
+    if hit and time.time() - hit[0] < TTL:
+        return hit[1]
+    titulo, venc, tid = _td_titulo(t)
+    from .db import connect
+    with connect(readonly=True) as conn:
+        rows = conn.execute("SELECT dia, pu, taxa FROM tesouro WHERE id=? ORDER BY dia", [tid]).fetchall()
+    df = pd.DataFrame([dict(r) for r in rows])
+    df.index = pd.Timestamp("1970-01-01") + pd.to_timedelta(df.pop("dia"), unit="D")
+    pu = df["pu"]
+    # cupom dos títulos com juros semestrais: a queda do PU no dia do pagamento vira provento
+    cupom = pd.Series(0.0, index=pu.index)
+    if "Juros Semestrais" in titulo:
+        dia_venc, mes_venc = int(venc[8:10]), int(venc[5:7])
+        meses = {mes_venc, (mes_venc + 6 - 1) % 12 + 1}
+        queda = pu.shift(1) - pu
+        janela = pu.index.month.isin(meses) & (abs(pu.index.day - dia_venc) <= 5)
+        marcados = janela & (queda / pu.shift(1) > 0.012)
+        cupom[marcados] = queda[marcados]
+    df["cupom"] = cupom
+    df.attrs.update(titulo=titulo, vencimento=venc)
+    _cache[chave] = (time.time(), df)
+    return df
+
+
+def _td_history(ticker: str, period: str) -> pd.DataFrame:
+    df = _td_serie(ticker)
+    s, cupom = df["pu"], df["cupom"]
+    if period == "ytd":
+        corte = pd.Timestamp(date.today().year, 1, 1)
+    elif period in PERIODOS:
+        corte = s.index[-1] - pd.Timedelta(days=PERIODOS[period])
+    else:
+        corte = s.index[0]
+    s, cupom = s[s.index >= corte], cupom[cupom.index >= corte]
+    v = s.to_numpy()
+    return pd.DataFrame({"Open": v, "High": v, "Low": v, "Close": v, "Volume": 0.0, "Dividends": cupom.to_numpy()},
+                        index=s.index.tz_localize("America/Sao_Paulo"))
+
+
+def _td_nome(ticker: str) -> str:
+    titulo, venc, _ = _td_titulo(ticker)
+    return f"{titulo} {venc[:4]} (vence {venc[8:10]}/{venc[5:7]}/{venc[:4]})"
+
+
+def _td_cotacao(ticker: str) -> dict:
+    df = _td_serie(ticker)
+    preco, ant = float(df["pu"].iloc[-1]), float(df["pu"].iloc[-2])
+    return {
+        "ticker": ticker.upper(), "nome": _td_nome(ticker), "moeda": "BRL", "preco": preco, "fechamento_anterior": ant,
+        "variacao": preco - ant, "variacao_pct": (preco / ant - 1) * 100, "abertura": ant, "maxima_dia": max(preco, ant),
+        "minima_dia": min(preco, ant), "volume": None, "estado_mercado": "REGULAR",
+        "horario": df.index[-1].strftime("%Y-%m-%dT00:00:00-03:00"), "taxa_atual": df["taxa"].iloc[-1],
+        "vencimento": df.attrs["vencimento"], "renda_fixa": True, "tesouro": True,
+    }
+
+
+def _td_buscar(q: str) -> list[dict]:
+    lista = _td_lista()
+    if lista.empty:
+        return []
+    ql = q.lower()
+    vigentes = lista[lista["fim"] >= lista["fim"].max()].dropna(subset=["ticker"])
+    palavras = [p for p in re.split(r"\s+", ql) if p and p not in ("tesouro", "td", "direto")]
+    if palavras:
+        alvo = vigentes[[all(p in f"{t} {tk}".lower() for p in palavras) for t, tk in zip(vigentes["titulo"], vigentes["ticker"])]]
+    else:
+        alvo = vigentes
+    out = []
+    for r in alvo.sort_values(["titulo", "vencimento"]).head(8).itertuples():
+        out.append({"tipo": "RF", "codigo": r.ticker, "ticker": r.ticker, "nome_pregao": f"{r.titulo} {r.vencimento[:4]}",
+                    "categoria": "Tesouro Direto", "preco": None, "status": "ok"})
     return out

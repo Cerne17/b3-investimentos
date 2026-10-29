@@ -3,9 +3,10 @@
 * Extrato de Negociação: "Data do Negócio", "Tipo de Movimentação" (Compra/Venda), "Código de Negociação",
   "Quantidade", "Preço".
 * Extrato de Movimentação: "Entrada/Saída" (Credito/Debito), "Data", "Movimentação", "Produto", "Quantidade",
-  "Preço unitário". Só as liquidações de compra/venda (e bonificações) viram operações; proventos são recalculados pelo
-  histórico, desdobramentos/grupamentos já estão nos preços ajustados e transferências entre corretoras não mudam a
-  posição.
+  "Preço unitário". Liquidações de compra/venda viram operações; bonificação, desdobro e grupamento viram eventos (sem
+  dinheiro — o desempenho os descarta quando o Yahoo já ajustou os preços); títulos do Tesouro Direto viram TD-…
+  (ex.: "Tesouro IPCA+ 2035" → TD-IPCA-2035) ao PU da operação. Proventos são recalculados pelo histórico e
+  transferências entre corretoras não mudam a posição.
 """
 import base64
 import io
@@ -15,9 +16,12 @@ from collections import Counter
 
 import pandas as pd
 
+from .rendafixa import ticker_tesouro
+
 COMPRA_VENDA = {"transferencia - liquidacao", "compra", "venda", "compra / venda", "liquidacao"}
 SAIDA = {"leilao de fracao", "fracao em ativos"}
-BONUS = {"bonificacao em ativos"}
+EVENTOS = {"bonificacao em ativos": "bonificacao", "desdobro": "desdobro", "grupamento": "grupamento"}
+RESGATE_TD = {"venda", "resgate", "vencimento", "resgate antecipado", "compra / venda", "transferencia - liquidacao"}
 
 
 def _norm(v) -> str:
@@ -84,26 +88,41 @@ def importar(arquivo_base64: str, nome: str = "extrato.xlsx") -> dict:
             if not q or pd.isna(r.get("data")):
                 ignoradas[mov or "linha vazia"] += 1
                 continue
+            evento = None
             if _norm(produto).startswith("tesouro"):
-                tesouro.add(produto.strip())
+                tk = ticker_tesouro(produto, "")
+                if not tk:
+                    tesouro.add(produto.strip())
+                    continue
+                if es.startswith("credito") and mov in COMPRA_VENDA:
+                    tipo = "compra"
+                elif es.startswith("debito") and mov in RESGATE_TD:
+                    tipo = "venda"
+                else:
+                    ignoradas[mov] += 1
+                    continue
+                transacoes.append({"data": _data(r["data"]), "ticker": tk, "tipo": tipo, "quantidade": q, "preco": p or 0})
                 continue
             if mov in COMPRA_VENDA:
                 tipo = "compra" if es.startswith("credito") else "venda"
             elif mov in SAIDA and es.startswith("debito"):
                 tipo = "venda"
-            elif mov in BONUS and es.startswith("credito"):
-                tipo = "compra"
+            elif mov in EVENTOS:
+                tipo, evento = ("compra" if es.startswith("credito") else "venda"), EVENTOS[mov]
             else:
                 ignoradas[mov] += 1
                 continue
-            transacoes.append({"data": _data(r["data"]), "ticker": _ticker(produto), "tipo": tipo, "quantidade": q, "preco": p or 0})
+            op = {"data": _data(r["data"]), "ticker": _ticker(produto), "tipo": tipo, "quantidade": q, "preco": p or 0}
+            if evento:
+                op["evento"] = evento
+            transacoes.append(op)
         if tesouro:
-            avisos.append("Títulos do Tesouro Direto não importados (lance como SELIC, IPCA+X ou PRE-X): " + ", ".join(sorted(tesouro)))
+            avisos.append("Títulos do Tesouro não reconhecidos (lance como TD-IPCA-2035, TD-PRE-2031...): " + ", ".join(sorted(tesouro)))
     else:
         raise ValueError("Formato não reconhecido: use o extrato de Negociação ou de Movimentação da Área do Investidor da B3.")
 
     transacoes.sort(key=lambda t: t["data"])
-    sem_preco = sorted({t["ticker"] for t in transacoes if not t["preco"]})
+    sem_preco = sorted({t["ticker"] for t in transacoes if not t["preco"] and not t.get("evento")})
     if sem_preco:
         avisos.append("Operações sem preço (o custo fica zero): " + ", ".join(sem_preco))
     return {"transacoes": transacoes, "ignoradas": dict(ignoradas.most_common()), "avisos": avisos}

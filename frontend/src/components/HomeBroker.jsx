@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { carregar, novaCarteira, salvar } from '../lib/broker.js'
 import { fmt, signClass, signed } from '../format.js'
-import Desempenho from './Desempenho.jsx'
+import Desempenho, { ImpostoVendas, useDesempenho } from './Desempenho.jsx'
 import Operacoes from './Operacoes.jsx'
 import { BarChart, MultiLineChart } from './Charts.jsx'
 import { TITULOS } from './live/comum.jsx'
@@ -40,16 +40,20 @@ const cotasNaDataEx = (transacoes, ticker, dataEx) => Math.max(0, transacoes
   .filter((t) => t.ticker === ticker && t.data < dataEx)
   .reduce((a, t) => a + (t.tipo === 'venda' ? -t.quantidade : t.quantidade), 0))
 
-function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda, transacoes }) {
+function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda, transacoes, recebidos }) {
   const meses = ultimos12()
-  // recebido de verdade: cada provento x as cotas que havia na data ex (compras e vendas ao longo do ano contam)
-  const recebidoDe = (ticker, filtro = () => true) => (Array.isArray(provs[ticker]) ? provs[ticker] : [])
-    .filter(filtro).reduce((x, p) => x + p.valor * cotasNaDataEx(transacoes, ticker, p.data), 0)
+  // recebido de verdade: cada provento x as cotas que havia na data ex (compras e vendas ao longo do ano contam).
+  // Com o desempenho carregado usa o cálculo do servidor (já na base atual, com desdobramentos e cupons do Tesouro).
+  const desde = `${meses[0]}-01`
+  const recebidoDe = (ticker, filtro = () => true) => (recebidos
+    ? recebidos.filter((p) => p.ticker === ticker && p.data >= desde && filtro(p)).reduce((x, p) => x + p.valor, 0)
+    : (Array.isArray(provs[ticker]) ? provs[ticker] : []).filter(filtro).reduce((x, p) => x + p.valor * cotasNaDataEx(transacoes, ticker, p.data), 0))
+  const semDados = linhas.filter((l) => !l.prov12 && ['FII', 'ETF'].includes(l.tipo) && Array.isArray(provs[l.ticker]) && !provs[l.ticker].length)
   const porMes = meses.map((m) => ({
     mes: `${m}-01`,
     valor: linhas.reduce((a, l) => a + recebidoDe(l.ticker, (p) => p.data.startsWith(m)), 0),
   }))
-  const pagadores = linhas.filter((l) => l.prov12 > 0).sort((a, b) => b.prov12 * b.quantidade - a.prov12 * a.quantidade)
+  const pagadores = linhas.filter((l) => l.prov12 > 0 || recebidoDe(l.ticker) > 0).sort((a, b) => b.prov12 * b.quantidade - a.prov12 * a.quantidade)
   const total12 = porMes.reduce((a, m) => a + m.valor, 0)
   const meta = Number(metaRenda) || 0
   const falta = Math.max(0, meta - tot.renda)
@@ -100,6 +104,11 @@ function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda, transacoes }) 
           {!pagadores.length && <div className="empty">Nenhum ativo da carteira pagou proventos nos últimos 12 meses.</div>}
         </div>
       </div>
+      {semDados.length > 0 && (
+        <p className="muted" style={{ fontSize: 12 }}>
+          Sem dados de proventos de {semDados.map((l) => l.ticker).join(', ')} no Yahoo nem na base: se {semDados.length > 1 ? 'eles pagam' : 'ele paga'}, a renda aparece zerada aqui.
+        </p>
+      )}
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Proventos por data ex (Yahoo Finance), brutos de imposto; quem compra na data ex só recebe no pagamento seguinte. Yield on cost compara a renda com o que você pagou; DY 12m, com o preço de hoje.</p>
     </div>
   )
@@ -161,11 +170,20 @@ export default function HomeBroker({ onOpen, onSimular }) {
   const arquivo = useRef(null)
 
   const carteira = estado.carteiras.find((c) => c.id === estado.ativa) || estado.carteiras[0]
-  const posicoes = carteira?.posicoes || []
+  const transacoes = carteira?.transacoes || []
+  // posições: as do desempenho (base atual, já com desdobramentos) quando chegam; até lá, as locais
+  const [desemp, erroDesemp] = useDesempenho(transacoes)
+  const posicoes = useMemo(() => {
+    const locais = carteira?.posicoes || []
+    if (!desemp?.posicoes) return locais
+    const doBack = new Set(desemp.posicoes.map((p) => p.ticker))
+    // ativos sem histórico ficam fora do cálculo do servidor: mantém a posição local deles
+    const semHistorico = locais.filter((p) => !doBack.has(p.ticker) && desemp.avisos.some((a) => a.startsWith(`${p.ticker}:`)))
+    return [...desemp.posicoes, ...semHistorico]
+  }, [carteira, desemp])
   const tickers = posicoes.map((p) => p.ticker)
 
   const atualizarEstado = (fn) => setEstado((e) => salvar(fn(e)))
-  const transacoes = carteira?.transacoes || []
   const setTransacoes = (fn) => atualizarEstado((e) => ({
     ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, transacoes: fn(c.transacoes || []) } : c)),
   }))
@@ -386,14 +404,16 @@ export default function HomeBroker({ onOpen, onSimular }) {
       </div>
 
       {posicoes.length > 0 && (
-        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda} transacoes={transacoes}
+        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda} transacoes={transacoes} recebidos={desemp?.proventos_recebidos}
           setMetaRenda={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, meta_renda: v } : c)) }))} />
       )}
 
       <Operacoes transacoes={transacoes} setTransacoes={setTransacoes}
         onImportarB3={(ops, arquivo) => criar(`B3 · ${arquivo.replace(/\.(xlsx|xls|csv)$/i, '')}`, [], ops)} />
 
-      <Desempenho transacoes={transacoes} />
+      <Desempenho transacoes={transacoes} d={desemp} erro={erroDesemp} />
+
+      <ImpostoVendas d={desemp} />
 
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Posições</h2>

@@ -90,6 +90,75 @@ def _tir(fluxos: list[tuple[pd.Timestamp, float]]) -> float | None:
         return None
 
 
+def _custo_medio_e_ir(tx: list[dict]) -> tuple[list[dict], dict]:
+    """Posições atuais (base atual, custo médio) e apuração mensal do IR sobre vendas (pessoa física, operações
+    comuns): ações com isenção para vendas de até R$ 20 mil no mês; ETFs e BDRs 15% sem isenção; FIIs 20%; cripto 15%
+    com isenção até R$ 35 mil/mês. Prejuízos compensam lucros futuros da mesma categoria (ações/ETFs/BDRs juntos, FIIs
+    à parte, cripto à parte). Renda fixa e Tesouro têm IR retido na fonte e ficam fora. DARF abaixo de R$ 10 acumula."""
+    from . import impostos
+    pos, vendas_mes = {}, {}
+    for x in sorted(tx, key=lambda x: x["data"]):
+        p = pos.setdefault(x["ticker"], {"q": 0.0, "custo": 0.0})
+        if x["sinal"] > 0:
+            p["q"] += x["q"]
+            p["custo"] += x["q"] * x["p"]
+            continue
+        q = min(x["q"], p["q"])
+        if q <= 0:
+            continue
+        medio = p["custo"] / p["q"] if p["q"] else 0.0
+        p["custo"] -= medio * q
+        p["q"] -= q
+        if x["evento"]:  # grupamento: menos cotas, mesmo custo total
+            p["custo"] += medio * q
+            continue
+        classe = impostos.classe(x["ticker"])
+        if classe == "RF":
+            continue
+        m = vendas_mes.setdefault(x["data"].strftime("%Y-%m"), {})
+        v = m.setdefault(classe, {"vendas": 0.0, "lucro": 0.0})
+        v["vendas"] += q * x["p"]
+        v["lucro"] += (x["p"] - medio) * q
+    posicoes = [{"ticker": t, "quantidade": round(p["q"], 8), "preco_medio": round(p["custo"] / p["q"], 6)}
+                for t, p in pos.items() if p["q"] > 1e-9]
+
+    CATEG = {"ACAO": "comum", "ETF": "comum", "EXTERIOR": "comum", "FII": "fii", "CRIPTO": "cripto"}
+    ALIQ = {"comum": 0.15, "fii": 0.20, "cripto": 0.15}
+    prejuizo = {"comum": 0.0, "fii": 0.0, "cripto": 0.0}
+    meses, pendente = [], 0.0
+    for mes in sorted(vendas_mes):
+        linhas = vendas_mes[mes]
+        vendas_acoes = linhas.get("ACAO", {}).get("vendas", 0.0)
+        vendas_cripto = linhas.get("CRIPTO", {}).get("vendas", 0.0)
+        base = {"comum": 0.0, "fii": 0.0, "cripto": 0.0}
+        isento = 0.0
+        for classe, v in linhas.items():
+            cat, lucro = CATEG.get(classe, "comum"), v["lucro"]
+            if lucro > 0 and ((classe == "ACAO" and vendas_acoes <= 20_000) or (classe == "CRIPTO" and vendas_cripto <= 35_000)):
+                isento += lucro  # lucro isento não consome prejuízo
+                continue
+            base[cat] += lucro
+        imposto = 0.0
+        for cat, lucro in base.items():
+            if lucro >= 0:
+                usado = min(prejuizo[cat], lucro)  # compensa prejuízo acumulado da mesma categoria
+                prejuizo[cat] -= usado
+                imposto += (lucro - usado) * ALIQ[cat]
+            else:
+                prejuizo[cat] -= lucro
+        devido = imposto + pendente
+        darf = devido if devido >= 10 else 0.0
+        pendente = 0.0 if darf else devido
+        meses.append({
+            "mes": mes,
+            "vendas": {impostos.NOMES[c]: round(v["vendas"], 2) for c, v in linhas.items()},
+            "lucro": {impostos.NOMES[c]: round(v["lucro"], 2) for c, v in linhas.items()},
+            "isento": round(isento, 2), "imposto": round(imposto, 2), "darf": round(darf, 2),
+            "prejuizo_acumulado": {k: round(v, 2) for k, v in prejuizo.items()},
+        })
+    return posicoes, {"meses": meses, "total_darf": round(sum(m["darf"] for m in meses), 2), "a_pagar_acumulado": round(pendente, 2)}
+
+
 def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> dict:
     if not transacoes:
         raise ValueError("Nenhuma operação: registre compras (e vendas) com data.")
@@ -101,8 +170,9 @@ def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> d
         q, p = float(t["quantidade"]), float(t.get("preco") or 0)
         if q <= 0:
             continue
+        evento = (t.get("evento") or None) and str(t["evento"]).lower()
         tx.append({"data": pd.Timestamp(t["data"]).normalize(), "ticker": str(t["ticker"]).upper().replace(".SA", ""),
-                   "sinal": 1 if tipo == "compra" else -1, "q": q, "p": p})
+                   "sinal": 1 if tipo == "compra" else -1, "q": q, "p": p, "evento": evento})
     if not tx:
         raise ValueError("Nenhuma operação com quantidade positiva.")
     tx.sort(key=lambda x: x["data"])
@@ -119,6 +189,15 @@ def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> d
     tx = [x for x in tx if x["ticker"] in precos]
     if not tx:
         raise LookupError("Nenhum ativo das operações tem histórico.")
+    # desdobramento/grupamento/bonificação lançados (ex.: vindos do extrato da B3): se o Yahoo já registra o evento
+    # perto da data, os preços já estão ajustados e a conversão para a base atual já cria as cotas novas — descarta
+    sem_dup = []
+    for x in tx:
+        if x["evento"] and any(abs((d - x["data"]).days) <= 20 for d, _ in eventos[x["ticker"]]):
+            avisos.append(f"{x['ticker']}: {x['evento']} de {x['data']:%d/%m/%Y} já está nos preços do Yahoo; lançamento ignorado")
+            continue
+        sem_dup.append(x)
+    tx = sem_dup
     for x in tx:  # operações anteriores a desdobramentos → base atual
         f = _fator(eventos[x["ticker"]], x["data"])
         x["q"], x["p"] = x["q"] * f, x["p"] / f
@@ -150,6 +229,8 @@ def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> d
         cf = 0.0
         for x in por_dia.get(d, []):
             qtd[x["ticker"]] = max(0.0, qtd[x["ticker"]] + x["sinal"] * x["q"])
+            if x["evento"]:  # evento societário mexe na quantidade, não no dinheiro
+                continue
             cf += x["sinal"] * x["q"] * x["p"]
             fluxos.append((d, -x["sinal"] * x["q"] * x["p"]))
         if prov:
@@ -194,8 +275,9 @@ def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> d
             avisos.append(f"benchmark {nome}: {e}")
 
     v_fim, inv_fim = valor[-1], investido[-1]
-    compras = sum(x["q"] * x["p"] for x in tx if x["sinal"] > 0)
-    vendas = sum(x["q"] * x["p"] for x in tx if x["sinal"] < 0)
+    compras = sum(x["q"] * x["p"] for x in tx if x["sinal"] > 0 and not x["evento"])
+    vendas = sum(x["q"] * x["p"] for x in tx if x["sinal"] < 0 and not x["evento"])
+    posicoes, ir_mensal = _custo_medio_e_ir(tx)
     return {
         "inicio": datas[0].strftime("%Y-%m-%d"), "fim": datas[-1].strftime("%Y-%m-%d"),
         "datas": [d.strftime("%Y-%m-%d") for d in datas],
@@ -212,5 +294,7 @@ def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> d
         },
         "benchmarks": bench,
         "proventos_recebidos": recebidos[::-1][:200],
+        "posicoes": posicoes,
+        "ir": ir_mensal,
         "avisos": avisos,
     }

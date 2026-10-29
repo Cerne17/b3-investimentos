@@ -186,6 +186,20 @@ CREATE TABLE IF NOT EXISTS series_bcb (
     valor  REAL NOT NULL,
     PRIMARY KEY (serie, data)
 );
+CREATE TABLE IF NOT EXISTS tesouro_titulos (
+    id         INTEGER PRIMARY KEY,
+    titulo     TEXT NOT NULL,   -- "Tesouro IPCA+", "Tesouro Prefixado com Juros Semestrais"...
+    vencimento TEXT NOT NULL,   -- AAAA-MM-DD
+    inicio     TEXT, fim TEXT,
+    UNIQUE (titulo, vencimento)
+);
+CREATE TABLE IF NOT EXISTS tesouro (  -- preço diário de cada título (Tesouro Transparente), compacto
+    id   INTEGER NOT NULL,          -- tesouro_titulos.id
+    dia  INTEGER NOT NULL,          -- dias desde 1970-01-01
+    pu   REAL NOT NULL,             -- preço unitário base
+    taxa REAL,                      -- taxa de venda (% a.a.)
+    PRIMARY KEY (id, dia)
+) WITHOUT ROWID;
 DROP VIEW IF EXISTS ativos;
 CREATE VIEW ativos AS
     SELECT 'ETF' AS tipo, {cols}, pl, pvp FROM etfs

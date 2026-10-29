@@ -115,7 +115,7 @@ function Aposentadoria({ r }) {
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
         Saque seguro = maior saque mensal que não zera o patrimônio em {fmt.num(a.anos_saque, 0)} anos em 90% dos cenários (calculado exatamente
         sobre os mesmos sorteios). O risco de sequência — uma queda forte logo no começo dos saques — já está nos cenários.
-        {p.ir ? ' O IR sobre os saques não é descontado mês a mês.' : ''}
+        {a.saques_liquidos_de_ir ? ' Saques líquidos de IR: cada saque vende cotas a mais para pagar o imposto sobre o lucro embutido (custo corroído pela inflação).' : ''}
       </p>
     </div>
   )

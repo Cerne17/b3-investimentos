@@ -304,6 +304,8 @@ class Operacao(BaseModel):
     tipo: Literal["compra", "venda"] = "compra"
     quantidade: float = Field(..., gt=0, description="Cotas (cripto e renda fixa aceitam frações)")
     preco: float = Field(0, ge=0, description="Preço por cota na operação, como negociado (antes de desdobramentos)")
+    evento: Literal["desdobro", "grupamento", "bonificacao"] | None = Field(
+        None, description="Evento societário (sem dinheiro): ignorado se o Yahoo já o registra nos preços")
 
 
 class PedidoDesempenho(BaseModel):

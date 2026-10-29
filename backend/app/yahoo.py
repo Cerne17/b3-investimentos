@@ -478,6 +478,14 @@ def proventos(ticker: str) -> list[dict]:
         divs = hist["Dividends"] if "Dividends" in hist else pd.Series(dtype=float)
         divs = divs[divs > 0]
         out = [{"data": d.strftime("%Y-%m-%d"), "valor": round(float(v), 6)} for d, v in divs.items()]
+        if not out:  # Yahoo sem proventos: tenta o histórico salvo na base (ingestão)
+            try:
+                from . import repository as repo
+                corte = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+                out = sorted(({"data": p["data"][:10], "valor": round(float(p["valor"]), 6)} for p in repo.proventos(ticker, 30)
+                              if p["data"][:10] >= corte), key=lambda p: p["data"])
+            except Exception:
+                out = []
     _PROVENTOS[ticker] = (time.time(), out)
     return out
 

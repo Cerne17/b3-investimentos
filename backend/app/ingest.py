@@ -7,7 +7,7 @@ Uso:
     python -m app.ingest --skip-cvm       # sem o informe CVM
     python -m app.ingest --only acao      # só ações (lista do Formulário Cadastral da CVM)
     python -m app.ingest --pendentes      # só ativos que ainda não têm dados do Yahoo
-    python -m app.ingest --only rendafixa # só as séries do Banco Central (CDI, Selic, IPCA)
+    python -m app.ingest --only rendafixa # séries do Banco Central (CDI, Selic, IPCA) e preços do Tesouro Direto
     python -m app.ingest --only cripto    # só criptomoedas (CoinGecko + Yahoo), --limit = quantas moedas
 """
 import argparse
@@ -217,6 +217,7 @@ def main() -> None:
         from . import rendafixa
         init_db()
         print("séries do Banco Central:", rendafixa.salvar())
+        print("preços do Tesouro Direto:", rendafixa.salvar_tesouro(), "linhas")
         return
     if a.only == "cripto":
         cripto.coletar(a.limit or 150)
@@ -239,6 +240,7 @@ def main() -> None:
         cripto.coletar()
         from . import rendafixa
         print("séries do Banco Central:", rendafixa.salvar())
+        print("preços do Tesouro Direto:", rendafixa.salvar_tesouro(), "linhas")
 
 
 if __name__ == "__main__":
