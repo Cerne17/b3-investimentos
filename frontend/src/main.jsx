@@ -19,3 +19,8 @@ createRoot(document.getElementById('root')).render(
 )
 
 ativarCartoes()
+
+// PWA: instalável e com a interface disponível offline (só em produção, para não atrapalhar o hot reload)
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}))
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd frontend && npm ci && npx vite build",
+  "buildCommand": "curl -fsSL -o data/b3.db.novo https://github.com/Cerne17/b3-investimentos/releases/download/dados/b3.db && [ $(wc -c < data/b3.db.novo) -gt 1000000 ] && mv data/b3.db.novo data/b3.db || echo 'release de dados indisponível: usando data/b3.db do repositório'; cd frontend && npm ci && npx vite build",
   "functions": {
     "index.py": {
       "maxDuration": 60,

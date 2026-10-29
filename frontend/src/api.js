@@ -36,6 +36,7 @@ export const api = {
   otimizar: (body) => req('/api/carteira/otimizar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   mcCarteira: (body) => req('/api/montecarlo/carteira', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   mcAtivo: (body) => req('/api/montecarlo/ativo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  agenda: (posicoes) => req('/api/carteira/agenda', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ posicoes }) }),
   aporte: (body) => req('/api/carteira/aporte', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   desempenho: (body) => req('/api/carteira/desempenho', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   importarB3: (body) => req('/api/carteira/importar-b3', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),

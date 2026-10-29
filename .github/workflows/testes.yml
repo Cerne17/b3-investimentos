@@ -3,7 +3,7 @@ name: Testes
 on:
   push:
     branches: [main]
-    paths-ignore: ["data/b3.db"]
+    paths-ignore: ["data/b3.db", "data/versao.txt"]
   pull_request:
 
 jobs:

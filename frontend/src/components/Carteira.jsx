@@ -183,7 +183,8 @@ export default function Carteira({ onSimular, onBroker }) {
     onSimular,
     onBroker: onBroker && ((c) => {
       const a = c.alocacao
-      novaCarteira(c.nome, tks.map((t, i) => ({ ticker: t, quantidade: a.cotas[i], preco_medio: a.precos[i] })).filter((p) => p.quantidade > 0))
+      novaCarteira(c.nome, tks.map((t, i) => ({ ticker: t, quantidade: a.cotas[i], preco_medio: a.precos[i] })).filter((p) => p.quantidade > 0), null,
+        { alvos: Object.fromEntries(tks.map((t) => [t, +(c.pesos[t] * 100).toFixed(1)]).filter(([, w]) => w > 0)) }) // pesos ótimos viram alvo de rebalanceamento
       onBroker()
     }),
   }

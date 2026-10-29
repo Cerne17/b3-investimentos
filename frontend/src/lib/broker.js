@@ -50,12 +50,12 @@ export const novaOperacao = (o) => ({ id: id(), tipo: 'compra', ...o, ticker: St
 
 // cria uma carteira (ex.: vinda da aba Markowitz, com posições compradas hoje, ou de um extrato da B3, com
 // operações) e a torna ativa
-export function novaCarteira(nome, posicoes = [], transacoes = null) {
+export function novaCarteira(nome, posicoes = [], transacoes = null, extras = {}) {
   const e = carregar()
   const hoje = new Date().toISOString().slice(0, 10)
   const ops = transacoes ? transacoes.map(novaOperacao)
     : limpar(posicoes).map((p) => novaOperacao({ data: hoje, ticker: p.ticker, quantidade: p.quantidade, preco: p.preco_medio }))
-  const c = { id: id(), nome: nome || `Carteira ${e.carteiras.length + 1}`, transacoes: ops, criada: new Date().toISOString() }
+  const c = { id: id(), nome: nome || `Carteira ${e.carteiras.length + 1}`, transacoes: ops, criada: new Date().toISOString(), ...extras }
   return salvar({ ativa: c.id, carteiras: [...e.carteiras, c] })
 }
 

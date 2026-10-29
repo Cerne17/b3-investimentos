@@ -1,6 +1,7 @@
 name: Coleta de dados
 
-# Atualiza data/b3.db e faz commit; o push na main dispara o deploy da Vercel.
+# Atualiza data/b3.db, publica na release "dados" e faz um commit pequeno (data/versao.txt) que dispara o deploy
+# da Vercel; o build baixa a base da release.
 # Dias úteis à noite: só renda fixa (Banco Central + Tesouro Direto), que é rápida.
 # Sábado de manhã: coleta completa (CSVs da B3, CVM, Yahoo para ações/ETFs/FIIs, criptos e renda fixa).
 on:
@@ -32,6 +33,10 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r backend/requirements.txt
+      - name: Partir da base publicada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download dados -p b3.db -O data/b3.db --clobber || echo "sem release de dados: parte da base do repositório"
       - name: Coletar
         working-directory: backend
         env:
@@ -44,14 +49,20 @@ jobs:
             python -m app.ingest --only "$MODO"
           fi
       - name: Compactar e publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODO: ${{ github.event.inputs.modo || (github.event.schedule == '0 9 * * 6' && 'completa') || 'rendafixa' }}
         run: |
           sqlite3 data/b3.db "VACUUM;"
-          if git diff --quiet -- data/b3.db; then echo "sem mudanças"; exit 0; fi
+          # a base vai para a release "dados" (fora do histórico do git); o build da Vercel a baixa
+          gh release view dados >/dev/null 2>&1 || gh release create dados --title "Base de dados (atualizada pela coleta)" \
+            --notes "Snapshot de data/b3.db usado no build da Vercel; substituído a cada coleta." --latest=false
+          gh release upload dados data/b3.db --clobber
+          # um commit pequeno só para disparar o deploy
+          date -u +"%Y-%m-%dT%H:%M:%SZ $MODO" > data/versao.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/b3.db
-          git commit -m "Dados: coleta ${MODO:-automática} de $(date -u +%Y-%m-%d)"
+          git add data/versao.txt
+          git commit -m "Dados: coleta $MODO de $(date -u +%Y-%m-%d)"
           git pull --rebase origin main
           git push
-        env:
-          MODO: ${{ github.event.inputs.modo || (github.event.schedule == '0 9 * * 6' && 'completa') || 'rendafixa' }}

@@ -6,6 +6,7 @@ import { fmt, signClass, signed } from '../format.js'
 import Desempenho, { ImpostoVendas, useDesempenho } from './Desempenho.jsx'
 import Operacoes from './Operacoes.jsx'
 import Alertas from './Alertas.jsx'
+import Rebalanceamento from './Rebalanceamento.jsx'
 import { BarChart, MultiLineChart } from './Charts.jsx'
 import { TITULOS } from './live/comum.jsx'
 import { ehCripto, ehRendaFixa } from '../lib/ativos.js'
@@ -42,7 +43,27 @@ const cotasNaDataEx = (transacoes, ticker, dataEx) => Math.max(0, transacoes
   .filter((t) => t.ticker === ticker && t.data < dataEx)
   .reduce((a, t) => a + (t.tipo === 'venda' ? -t.quantidade : t.quantidade), 0))
 
-function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda, transacoes, recebidos }) {
+function Agenda({ agenda }) {
+  if (!agenda) return <div className="empty">Estimando os próximos pagamentos…</div>
+  const proximos = agenda.meses.flatMap((m) => m.itens).filter((i) => i.data_ex >= new Date().toISOString().slice(0, 10)).slice(0, 6)
+  return (
+    <>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>Próximos 12 meses · estimativa pela regularidade</div>
+      <BarChart data={agenda.total_12m > 0 ? agenda.meses.map((m) => ({ mes: `${m.mes}-01`, valor: m.total })) : []} x="mes" y="valor" format={(v) => fmt.num(v, 2)} />
+      <div className="muted" style={{ fontSize: 13 }}>Estimado em 12 meses: <b className="num">{fmt.brl(agenda.total_12m)}</b> · média {fmt.brl(agenda.total_12m / 12)}/mês</div>
+      {proximos.length > 0 && (
+        <div style={{ fontSize: 13, marginTop: 6 }}>
+          {proximos.map((i) => <div key={i.ticker + i.data_ex}><span className="num">{fmt.date(i.data_ex)}</span> · {i.ticker} · <b className="num">{fmt.brl(i.valor)}</b></div>)}
+        </div>
+      )}
+      <div className="muted" style={{ fontSize: 11, marginTop: 4 }} title={agenda.ativos.map((a) => `${a.ticker}: ${a.padrao}`).join(' · ')}>
+        {agenda.ativos.filter((a) => a.pagamentos).map((a) => `${a.ticker} ${a.padrao}`).join(' · ')}
+      </div>
+    </>
+  )
+}
+
+function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda, transacoes, recebidos, agenda }) {
   const meses = ultimos12()
   // recebido de verdade: cada provento x as cotas que havia na data ex (compras e vendas ao longo do ano contam).
   // Com o desempenho carregado usa o cálculo do servidor (já na base atual, com desdobramentos e cupons do Tesouro).
@@ -82,6 +103,7 @@ function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda, transacoes, re
           <div className="eyebrow" style={{ marginBottom: 6 }}>Recebido por mês nos últimos 12 meses · pelas cotas em cada data ex</div>
           <BarChart data={total12 > 0 ? porMes : []} x="mes" y="valor" format={(v) => fmt.num(v, 2)} />
           <div className="muted" style={{ fontSize: 13 }}>Total 12 meses: <b className="num">{fmt.brl(total12)}</b> · média {fmt.brl(total12 / 12)}/mês</div>
+          <div style={{ marginTop: 16 }}><Agenda agenda={agenda} /></div>
         </div>
         <div className="table-wrap cartoes" style={{ border: 0 }}>
           <table>
@@ -215,6 +237,18 @@ export default function HomeBroker({ onOpen, onSimular }) {
       setInfo(m)
     }).catch(() => {})
   }, [tickers.join(',')])
+
+  // agenda estimada dos próximos 12 meses (pela regularidade dos pagamentos)
+  const [agenda, setAgenda] = useState(null)
+  const chavePos = posicoes.map((p) => `${p.ticker}:${p.quantidade}`).join(',')
+  useEffect(() => {
+    setAgenda(null)
+    if (!posicoes.length) return
+    let vivo = true
+    const t = setTimeout(() => api.agenda(posicoes.map(({ ticker, quantidade }) => ({ ticker, quantidade })))
+      .then((a) => vivo && setAgenda(a)).catch(() => {}), 600)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [chavePos])
 
   // proventos por cota dos últimos 12 meses (Yahoo): ações, FIIs e ETFs
   useEffect(() => {
@@ -438,8 +472,14 @@ export default function HomeBroker({ onOpen, onSimular }) {
       </div>
 
       {posicoes.length > 0 && (
-        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda} transacoes={transacoes} recebidos={desemp?.proventos_recebidos}
+        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda} transacoes={transacoes} recebidos={desemp?.proventos_recebidos} agenda={agenda}
           setMetaRenda={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, meta_renda: v } : c)) }))} />
+      )}
+
+      {posicoes.length > 0 && tot.cotado && (
+        <Rebalanceamento linhas={linhas} tot={tot} alvos={carteira.alvos} tolerancia={carteira.tolerancia ?? 5}
+          setAlvos={(al) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, alvos: al } : c)) }))}
+          setTolerancia={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, tolerancia: v } : c)) }))} />
       )}
 
       {posicoes.length > 0 && (

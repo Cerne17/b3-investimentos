@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import desempenho, importar_b3, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
+from . import agenda, desempenho, importar_b3, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
 from .db import ROOT, SOMENTE_LEITURA, init_db
 
 TAGS = [
@@ -337,6 +337,23 @@ def onde_aportar(p: PedidoAporte):
         raise HTTPException(400, str(e))
 
 
+class PosicaoSimples(BaseModel):
+    ticker: str = Field(..., examples=["MXRF11"])
+    quantidade: float = Field(..., ge=0, examples=[100])
+
+
+class PedidoAgenda(BaseModel):
+    posicoes: list[PosicaoSimples] = Field(..., min_length=1)
+
+
+@app.post("/api/carteira/agenda", tags=["Carteira"], summary="Agenda de proventos estimada (12 meses)")
+def agenda_proventos(p: PedidoAgenda):
+    """Projeta os proventos dos próximos 12 meses pela regularidade dos pagamentos dos últimos 24 meses (mensal,
+    trimestral, semestral, anual ou repetição do último ano) x quantidade de cada posição. Inclui cupons do Tesouro
+    com juros semestrais. É estimativa: datas e valores reais dependem dos anúncios."""
+    return agenda.agenda([x.model_dump() for x in p.posicoes])
+
+
 @app.post("/api/carteira/desempenho", tags=["Carteira"], summary="Desempenho real a partir das operações")
 def desempenho_carteira(p: PedidoDesempenho):
     """Valor da carteira dia a dia, total investido, proventos recebidos (na data ex, pela posição da véspera),
@@ -555,7 +572,26 @@ async def _cache_assets(request: Request, call_next):
     # assets do Vite têm hash no nome: podem ficar em cache (navegador e CDN da Vercel) indefinidamente
     if request.url.path.startswith("/assets/") and resp.status_code == 200:
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif request.method == "GET" and request.url.path.startswith("/api/") and resp.status_code == 200 \
+            and "cache-control" not in resp.headers and _ttl_cdn(request):
+        # CDN da Vercel (s-maxage): respostas iguais são servidas do cache da borda, sem acordar a função nem o Yahoo.
+        # O navegador não guarda (max-age=0); stale-while-revalidate entrega a versão anterior enquanto atualiza.
+        resp.headers["Cache-Control"] = f"public, max-age=0, s-maxage={_ttl_cdn(request)}, stale-while-revalidate=600"
     return resp
+
+
+def _ttl_cdn(request: Request) -> int:
+    p = request.url.path
+    if p.startswith(("/api/atualizar", "/api/saude")):
+        return 0  # estado do servidor: sempre fresco
+    if p.startswith("/api/tempo-real/cotac"):
+        return 30
+    if p.startswith("/api/tempo-real/historico"):
+        intervalo = request.query_params.get("intervalo", "1d")
+        return 60 if intervalo not in ("1d", "1wk", "1mo") else 900
+    if p.startswith("/api/tempo-real/"):
+        return 3600
+    return 1800  # base local: muda só com a coleta diária
 
 
 if DIST.exists():
@@ -565,6 +601,10 @@ if DIST.exists():
     def spa(caminho: str):
         arq = DIST / caminho
         if caminho and arq.is_file():
+            if arq.suffix in (".js", ".webmanifest", ".json"):  # sw.js e manifest: mesma razão do index.html abaixo
+                corpo = arq.read_bytes()
+                tipo = {".js": "text/javascript", ".webmanifest": "application/manifest+json", ".json": "application/json"}[arq.suffix]
+                return Response(corpo, media_type=tipo, headers={"Cache-Control": "no-cache", "ETag": f'"{hashlib.sha1(corpo).hexdigest()}"'})
             return FileResponse(arq)
         # index.html sem cache e com ETag do conteúdo: na Vercel os arquivos têm data fixa e o ETag padrão (data +
         # tamanho) se repete entre builds, então o navegador recebia 304 e ficava com o dashboard antigo
