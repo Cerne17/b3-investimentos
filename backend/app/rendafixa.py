@@ -385,7 +385,7 @@ def _td_cotacao(ticker: str) -> dict:
         "ticker": ticker.upper(), "nome": _td_nome(ticker), "moeda": "BRL", "preco": preco, "fechamento_anterior": ant,
         "variacao": preco - ant, "variacao_pct": (preco / ant - 1) * 100, "abertura": ant, "maxima_dia": max(preco, ant),
         "minima_dia": min(preco, ant), "volume": None, "estado_mercado": "REGULAR",
-        "horario": df.index[-1].strftime("%Y-%m-%dT00:00:00-03:00"), "taxa_atual": df["taxa"].iloc[-1],
+        "horario": df.index[-1].strftime("%Y-%m-%dT00:00:00-03:00"), "taxa_atual": None if pd.isna(df["taxa"].iloc[-1]) else float(df["taxa"].iloc[-1]),
         "vencimento": df.attrs["vencimento"], "renda_fixa": True, "tesouro": True,
     }
 

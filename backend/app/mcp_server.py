@@ -8,7 +8,7 @@ from typing import Literal
 
 from mcp.server.mcpserver import MCPServer
 
-from . import ingest, montecarlo, portfolio, repository as repo, yahoo
+from . import desempenho, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
 from .db import SCHEMA, init_db
 
 mcp = MCPServer(
@@ -185,6 +185,7 @@ def otimizar_carteira(
     dy_min: float | None = None,
     ir: bool = False,
     estimativa: Literal["historica", "robusta", "reamostrada"] = "historica",
+    quantidades_atuais: list[float] | None = None,
 ) -> dict:
     """Otimização de carteira (Markowitz e variações) com alocação em cotas inteiras ao preço atual.
     filosofia: value_conservador | renda | defensivo | equilibrado | crescimento (define os indicadores).
@@ -193,7 +194,8 @@ def otimizar_carteira(
     menos sensível ao passado) | reamostrada (Michaud, pesos mais diversificados). ir=True otimiza com retornos líquidos de imposto de renda.
     Pesos em fração (0.35 = 35%). dy_min: dividend yield mínimo da carteira em % a.a. (ex.: 8).
     Cada carteira traz a renda mensal estimada da alocação. Sempre inclui a carteira de pesos iguais como referência."""
-    r = portfolio.otimizar(tickers, valor, peso_min, peso_max, indicadores, filosofia, periodo, dy_min=dy_min, ir=ir, estimativa=estimativa)
+    r = portfolio.otimizar(tickers, valor, peso_min, peso_max, indicadores, filosofia, periodo, dy_min=dy_min, ir=ir, estimativa=estimativa,
+                           quantidades_atuais=quantidades_atuais)
     r.pop("fronteira", None)
     return r
 
@@ -251,9 +253,53 @@ def simular_preco_monte_carlo(ticker: str, dias: int = 252, metodo: Literal["boo
 
 
 @mcp.tool()
+def onde_aportar(tickers: list[str], pesos: list[float], aporte: float, quantidades: list[float] | None = None) -> dict:
+    """Só compras, sem vender: quantas cotas comprar de cada ativo com o `aporte` (R$) para chegar o mais perto dos
+    `pesos`-alvo (frações, ex.: de uma carteira otimizada), a partir das `quantidades` que a pessoa já tem.
+    Cripto e renda fixa (CDI, TD-IPCA-2035...) compram o valor exato; os demais, cotas inteiras."""
+    return portfolio.aportar(tickers, pesos, quantidades, aporte)
+
+
+@mcp.tool()
+def desempenho_carteira(transacoes: list[dict], benchmarks: list[str] | None = None) -> dict:
+    """Desempenho real a partir das operações [{data: "AAAA-MM-DD", ticker, tipo: "compra"|"venda", quantidade, preco}]:
+    lucro, rentabilidade ponderada no tempo (TWR), TIR anual, proventos recebidos (na data ex, pela posição da véspera),
+    posições atuais (custo médio, já com desdobramentos), comparação com IBOV, CDI, IFIX e S&P 500 (no período e com os
+    mesmos aportes) e a apuração mensal do IR sobre vendas (isenção de ações até R$ 20 mil/mês, FII 20%, DARF)."""
+    r = desempenho.desempenho(transacoes, benchmarks)
+    for k in ("datas", "valor", "investido", "proventos", "twr"):
+        r.pop(k, None)
+    for b in r["benchmarks"].values():
+        b.pop("twr", None)
+        b.pop("mesmos_aportes", None)
+    r["proventos_recebidos"] = r["proventos_recebidos"][:24]
+    return r
+
+
+@mcp.tool()
+def titulos_tesouro(filtro: str = "") -> list[dict]:
+    """Títulos do Tesouro Direto à venda, com preço (PU), taxa atual e ticker para usar no app (TD-IPCA-2035...).
+    filtro: texto como "ipca", "prefixado", "selic", "renda+". Também aceitos: CDI, CDI-110, SELIC, IPCA+6, PRE-13
+    (índices sintéticos levados ao vencimento)."""
+    out = []
+    for s in rendafixa.buscar(f"tesouro {filtro}".strip()):
+        if not rendafixa.eh_tesouro(s["ticker"]):
+            continue
+        try:
+            c = rendafixa.cotacao(s["ticker"])
+            out.append({"ticker": s["ticker"], "nome": c["nome"], "preco": round(c["preco"], 2), "taxa_atual": c.get("taxa_atual"),
+                        "vencimento": c.get("vencimento"), "data": c["horario"][:10]})
+        except Exception:
+            pass
+    return out
+
+
+@mcp.tool()
 def buscar_ativos(texto: str, limite: int = 10) -> list[dict]:
-    """Procura ações, ETFs, FIIs e criptos pelo código ou nome (ex.: 'itau', 'ouro', 'logística', 'MXRF', 'solana')."""
-    return repo.buscar(texto, limite)
+    """Procura ações, ETFs, FIIs, criptos e renda fixa pelo código ou nome (ex.: 'itau', 'ouro', 'logística', 'MXRF',
+    'solana', 'cdi', 'tesouro ipca')."""
+    rf = rendafixa.buscar(texto)
+    return rf + repo.buscar(texto, max(1, limite - len(rf)))
 
 
 @mcp.tool()

@@ -67,14 +67,15 @@ function OndeAportar({ c, tickers, aporte, qtdAtuais }) {
   )
 }
 
-function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker, aporte, qtdAtuais }) {
+function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker, aporte, qtdAtuais, atual }) {
   const a = c.alocacao
   return (
-    <div className="card port-card">
+    <div className="card port-card" style={atual ? { borderColor: 'var(--accent, var(--series-1))' } : undefined}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
         <div>
           <h3>{idx != null ? `${idx + 1}. ` : ''}{c.nome}</h3>
           <p className="desc">{c.descricao}</p>
+          {c.distancia_atual != null && <p className="muted" style={{ fontSize: 12, margin: '2px 0 0' }}>{fmt.pct(c.distancia_atual, 0)} da sua carteira mudaria de lugar</p>}
         </div>
         {melhor && <span className="badge" title="Melhor no indicador que otimiza">★</span>}
       </div>
@@ -116,10 +117,10 @@ function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker, apo
       {(onSimular || onBroker) && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
           {onSimular && <button className="btn" onClick={() => onSimular({ tickers, pesos: tickers.map((t) => c.pesos[t]), valor_inicial: Number(valor), nome: c.nome })}>Simular no Monte Carlo</button>}
-          {onBroker && <button className="btn" onClick={() => onBroker(c)} title="Cria uma carteira no Home Broker com estas quantidades e o preço atual como preço médio">Acompanhar no Home Broker</button>}
+          {onBroker && !atual && <button className="btn" onClick={() => onBroker(c)} title="Cria uma carteira no Home Broker com estas quantidades e o preço atual como preço médio">Acompanhar no Home Broker</button>}
         </div>
       )}
-      <OndeAportar c={c} tickers={tickers} aporte={aporte} qtdAtuais={qtdAtuais || {}} />
+      {!atual && <OndeAportar c={c} tickers={tickers} aporte={aporte} qtdAtuais={qtdAtuais || {}} />}
     </div>
   )
 }
@@ -166,11 +167,12 @@ export default function Carteira({ onSimular, onBroker }) {
       setRes(await api.otimizar({
         tickers, valor: Number(valor), peso_min: pmin / 100, peso_max: pmax / 100, periodo,
         taxa_livre_risco: rf / 100, indicadores: inds, filosofia: filosofia || null, dy_min: dyMin === '' ? null : Number(dyMin), ir, estimativa,
+        quantidades_atuais: Object.keys(qtdAtuais).length ? tickers.map((t) => qtdAtuais[t] || 0) : null,
       }))
     } catch (e) { setErro(e.message); setRes(null) } finally { setRodando(false) }
   }
 
-  const todas = res ? [...res.carteiras, res.pesos_iguais] : []
+  const todas = res ? [...(res.atual ? [res.atual] : []), ...res.carteiras, res.pesos_iguais] : []
   const melhorDe = (k, maior) => {
     const vals = todas.map((c) => c.metricas[k]).filter((v) => v != null)
     return vals.length ? (maior ? Math.max(...vals) : Math.min(...vals)) : null
@@ -273,7 +275,7 @@ export default function Carteira({ onSimular, onBroker }) {
             <div className="table-wrap" style={{ maxHeight: 'none' }}>
               <table>
                 <thead>
-                  <tr><th className="txt">Métrica</th>{todas.map((c, i) => <th key={c.chave}>{c.chave === 'iguais' ? 'Pesos iguais' : `${i + 1}. ${c.nome}`}</th>)}</tr>
+                  <tr><th className="txt">Métrica</th>{todas.map((c, i) => <th key={c.chave}>{c.chave === 'iguais' ? 'Pesos iguais' : c.chave === 'atual' ? 'Sua carteira' : `${i + (res.atual ? 0 : 1)}. ${c.nome}`}</th>)}</tr>
                 </thead>
                 <tbody>
                   {LINHAS.map(([k, l, f, maior]) => {
@@ -298,6 +300,7 @@ export default function Carteira({ onSimular, onBroker }) {
           </div>
 
           <div className="port-grid section">
+            {res.atual && <CarteiraCard c={res.atual} tickers={tks} {...acoes} atual />}
             {res.carteiras.map((c, i) => <CarteiraCard key={c.chave} c={c} idx={i} tickers={tks} {...acoes} />)}
             <CarteiraCard c={res.pesos_iguais} tickers={tks} {...acoes} />
           </div>

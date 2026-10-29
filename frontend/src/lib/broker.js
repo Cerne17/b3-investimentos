@@ -74,3 +74,24 @@ export function limpar(posicoes) {
   return [...porTicker.values()]
 }
 
+
+// Junta operações importadas às de uma carteira existente, sem duplicar:
+// - operação idêntica (data, ativo, tipo, quantidade, preço, evento) já registrada é ignorada;
+// - posição sem data real (extrato de Posição) de um ativo que a carteira já tem é ignorada;
+// - operações reais de um ativo substituem as posições "sem data real" que a carteira tinha dele.
+export function mesclarOperacoes(existentes, novas) {
+  const chave = (t) => [t.data, t.ticker, t.tipo, (+t.quantidade).toFixed(6), (+t.preco).toFixed(4), t.evento || ''].join('|')
+  const reaisPorAtivo = new Set(novas.filter((t) => !t.inicial).map((t) => t.ticker))
+  const substituidas = existentes.filter((t) => t.inicial && reaisPorAtivo.has(t.ticker))
+  const base = existentes.filter((t) => !(t.inicial && reaisPorAtivo.has(t.ticker)))
+  const vistas = new Set(base.map(chave))
+  const ativos = new Set(base.map((t) => t.ticker))
+  const adicionadas = []
+  let ignoradas = 0
+  for (const t of novas) {
+    if (vistas.has(chave(t)) || (t.inicial && ativos.has(t.ticker))) { ignoradas++; continue }
+    vistas.add(chave(t))
+    adicionadas.push(novaOperacao(t))
+  }
+  return { transacoes: [...base, ...adicionadas], adicionadas: adicionadas.length, ignoradas, substituidas: substituidas.length }
+}

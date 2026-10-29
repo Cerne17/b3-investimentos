@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { fmt } from '../format.js'
 import { ehRendaFixa } from '../lib/ativos.js'
-import { novaOperacao } from '../lib/broker.js'
+import { mesclarOperacoes, novaOperacao } from '../lib/broker.js'
 import BuscaAtivo from './BuscaAtivo.jsx'
 
 const hoje = () => new Date().toISOString().slice(0, 10)
@@ -98,14 +98,25 @@ export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
 
       {importando && (
         <div className="alert section" style={{ marginTop: 10 }}>
-          {importando.carregando ? 'Lendo o extrato…' : importando.erro ? importando.erro : (
+          {importando.carregando ? 'Lendo o extrato…' : importando.erro ? importando.erro : importando.resumo ? (
+            <>{importando.resumo} <button className="chip" style={{ marginLeft: 6 }} onClick={() => setImportando(null)}>OK</button></>
+          ) : (
             <>
               <b>{importando.transacoes.length} operações</b> em {importando.nome}
               {Object.keys(importando.ignoradas).length > 0 && <> · ignoradas: {Object.entries(importando.ignoradas).map(([k, v]) => `${k} (${v})`).join(', ')}</>}
               {importando.avisos.map((a) => <div key={a} className="muted" style={{ fontSize: 13 }}>{a}</div>)}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button className="btn primary" disabled={!importando.transacoes.length}
-                  onClick={() => { onImportarB3(importando.transacoes, importando.nome); setImportando(null) }}>Criar carteira com essas operações</button>
+                {transacoes.length > 0 && (
+                  <button className="btn primary" disabled={!importando.transacoes.length} title="Junta à carteira aberta, sem duplicar operações já registradas"
+                    onClick={() => {
+                      const r = mesclarOperacoes(transacoes, importando.transacoes)
+                      setTransacoes(() => r.transacoes)
+                      setImportando({ resumo: `${r.adicionadas} operações adicionadas, ${r.ignoradas} já existiam${r.substituidas ? `, ${r.substituidas} posições sem data substituídas pelo histórico real` : ''}.` })
+                      setAberto(true)
+                    }}>Adicionar a esta carteira</button>
+                )}
+                <button className={`btn ${transacoes.length ? '' : 'primary'}`} disabled={!importando.transacoes.length}
+                  onClick={() => { onImportarB3(importando.transacoes, importando.nome); setImportando(null) }}>Criar carteira nova</button>
                 <button className="btn" onClick={() => setImportando(null)}>Cancelar</button>
               </div>
             </>

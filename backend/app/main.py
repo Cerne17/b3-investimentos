@@ -289,6 +289,7 @@ class PedidoCarteira(BaseModel):
     taxa_livre_risco: float | None = Field(None, description="Taxa livre de risco anual (0.14 = 14%). Padrão: B3_TAXA_LIVRE_RISCO")
     estimativa: Literal["historica", "robusta", "reamostrada"] = Field(
         "historica", description="historica; robusta = Ledoit-Wolf + James-Stein (alvo de Sharpe igual); reamostrada = média dos pesos em 30 reamostragens (Michaud)")
+    quantidades_atuais: list[float] | None = Field(None, description="Cotas que você já tem, uma por ativo: inclui sua carteira atual na comparação")
     ir: bool = Field(False, description="Otimiza com retornos líquidos de IR: ganho de capital 15% (FII 20%), proventos de ETF 15%, renda fixa livre de risco x 0,85")
     dy_min: float | None = Field(None, ge=0, le=50, examples=[8], description="Dividend yield mínimo da carteira (% a.a. dos últimos 12 meses); restrição em todas as carteiras otimizadas")
 

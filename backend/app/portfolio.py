@@ -361,12 +361,15 @@ def otimizar(
     dy_min: float | None = None,
     ir: bool = False,
     estimativa: str = "historica",
+    quantidades_atuais: list[float] | None = None,
 ) -> dict:
     """dy_min: dividend yield mínimo da carteira em % a.a. (restrição em todas as carteiras otimizadas).
     ir: otimiza com retornos líquidos de IR — ganho de preço x (1 - alíquota de ganho da classe), proventos x
     (1 - alíquota de proventos) e taxa livre de risco x 0,85 (renda fixa de longo prazo).
     estimativa: historica | robusta (Ledoit-Wolf + James-Stein) | reamostrada (Michaud) — ver ESTIMATIVAS.
-    As métricas mostradas são sempre as realizadas no histórico."""
+    As métricas mostradas são sempre as realizadas no histórico.
+    quantidades_atuais: cotas que você já tem (uma por ativo) → a resposta traz `atual` (sua carteira de hoje, com as
+    mesmas métricas) e, em cada carteira otimizada, `distancia_atual` (% da carteira que precisaria mudar de lugar)."""
     if estimativa not in ESTIMATIVAS:
         raise ValueError(f"estimativa desconhecida: {estimativa} (use {', '.join(ESTIMATIVAS)})")
     tickers = list(dict.fromkeys(t.strip().upper().replace(".SA", "") for t in tickers if t.strip()))
@@ -454,6 +457,28 @@ def otimizar(
     eq = np.full(n, 1 / n)
     iguais = montar("Pesos iguais", "iguais", eq, "Referência: mesmo peso em cada ativo.")
 
+    atual = None
+    if quantidades_atuais is not None:
+        q0 = np.array(quantidades_atuais, float)
+        if len(q0) != n or q0.min() < 0:
+            raise ValueError("quantidades_atuais: uma quantidade (≥ 0) por ativo.")
+        valores = q0 * precos
+        if valores.sum() > 0:
+            w0 = valores / valores.sum()
+            renda = float(valores @ dy / 100)
+            atual = {
+                "chave": "atual", "nome": "Sua carteira atual", "descricao": "Os pesos que você tem hoje, com as mesmas métricas.",
+                "pesos": dict(zip(tickers, w0.round(4).tolist())),
+                "metricas": {k: (round(v, 4) if v is not None else None) for k, v in metricas(w0, R, dy, rf, dias).items()},
+                "alocacao": {"cotas": [float(x) for x in q0], "fracionario": frac.tolist(), "precos": precos.round(2).tolist(),
+                             "valores": valores.round(2).tolist(), "pct_do_valor": (valores / valores.sum()).round(4).tolist(),
+                             "pesos_reais": w0.round(4).tolist(), "investido": round(float(valores.sum()), 2), "sobra": 0.0,
+                             "renda_anual": round(renda, 2), "renda_mensal": round(renda / 12, 2)},
+            }
+            for c in carteiras + [iguais]:
+                w = np.array([c["pesos"][t] for t in tickers])
+                c["distancia_atual"] = round(float(np.abs(w - w0).sum() / 2 * 100), 2)
+
     fundamentos = {}
     for t in tickers:
         if rendafixa.eh_renda_fixa(t):
@@ -483,6 +508,7 @@ def otimizar(
         "correlacao": {"tickers": tickers, "matriz": np.corrcoef(R, rowvar=False).round(3).tolist()},
         "carteiras": carteiras,
         "pesos_iguais": iguais,
+        "atual": atual,
         "fronteira": fronteira(mu_opt, cov_opt, peso_min, peso_max, extra=extra),
     }
 
