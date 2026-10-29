@@ -286,6 +286,7 @@ class PedidoCarteira(BaseModel):
                                           description="Objetivos de otimização; se vazio, usa os da filosofia")
     periodo: Literal["1y", "2y", "5y", "10y"] = Field("2y", description="Janela histórica dos retornos")
     taxa_livre_risco: float | None = Field(None, description="Taxa livre de risco anual (0.14 = 14%). Padrão: B3_TAXA_LIVRE_RISCO")
+    ir: bool = Field(False, description="Otimiza com retornos líquidos de IR: ganho de capital 15% (FII 20%), proventos de ETF 15%, renda fixa livre de risco x 0,85")
     dy_min: float | None = Field(None, ge=0, le=50, examples=[8], description="Dividend yield mínimo da carteira (% a.a. dos últimos 12 meses); restrição em todas as carteiras otimizadas")
 
 
@@ -378,6 +379,7 @@ class PedidoMCCarteira(BaseModel):
     meta: float | None = Field(None, gt=0, examples=[100000], description="Patrimônio-alvo ou renda mensal-alvo (ver meta_tipo), em reais de hoje se houver inflação")
     meta_tipo: Literal["patrimonio", "renda"] = Field("patrimonio", description="patrimonio = valor final; renda = renda mensal média dos últimos 12 meses do horizonte")
     proventos: Literal["reinvestir", "sacar"] = Field("reinvestir", description="reinvestir = retorno total; sacar = o patrimônio cresce só pelo preço e os proventos viram renda")
+    ir: bool = Field(False, description="Desconta IR dos proventos (FII isento, dividendos de ações isentos, ETF 15%) e do ganho num resgate no fim (ações/ETF/cripto/RF 15%, FII 20%)")
     inflacao: float = Field(0.0, ge=0, le=0.5, description="Inflação anual para mostrar valores reais (0.045 = 4,5%)")
     taxa_livre_risco: float | None = Field(None, description="Renda fixa de comparação (padrão: B3_TAXA_LIVRE_RISCO)")
     semente: int | None = Field(42, description="Semente do gerador (mesma semente = mesmo resultado)")

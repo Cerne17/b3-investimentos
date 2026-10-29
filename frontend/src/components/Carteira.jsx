@@ -134,6 +134,7 @@ export default function Carteira({ onSimular, onBroker }) {
   const [rf, setRf] = useState(14)
   const [dyMin, setDyMin] = useState('')
   const [aporte, setAporte] = useState('')
+  const [ir, setIr] = useState(false)
   const [qtdAtuais, setQtdAtuais] = useState({}) // posições trazidas do Home Broker, para "onde aportar"
   const [filosofia, setFilosofia] = useState('value_conservador')
   const [inds, setInds] = useState(['sharpe', 'sortino', 'calmar', 'renda_risco'])
@@ -163,7 +164,7 @@ export default function Carteira({ onSimular, onBroker }) {
     try {
       setRes(await api.otimizar({
         tickers, valor: Number(valor), peso_min: pmin / 100, peso_max: pmax / 100, periodo,
-        taxa_livre_risco: rf / 100, indicadores: inds, filosofia: filosofia || null, dy_min: dyMin === '' ? null : Number(dyMin),
+        taxa_livre_risco: rf / 100, indicadores: inds, filosofia: filosofia || null, dy_min: dyMin === '' ? null : Number(dyMin), ir,
       }))
     } catch (e) { setErro(e.message); setRes(null) } finally { setRodando(false) }
   }
@@ -219,6 +220,10 @@ export default function Carteira({ onSimular, onBroker }) {
           </label>
           <label className="field" title="Dinheiro novo deste mês: cada carteira otimizada mostra quantas cotas comprar para chegar perto do alvo, sem vender nada">
             Aporte do mês (R$)<input type="number" min="0" step="100" placeholder="opcional" value={aporte} onChange={(e) => setAporte(e.target.value)} />
+          </label>
+          <label className="field" title="Otimiza com retornos depois do imposto: ganho de capital 15% (FIIs 20%), proventos de ETF 15%, renda fixa de referência x 0,85. Isenções mensais de vendas não entram.">
+            <span><input type="checkbox" checked={ir} onChange={(e) => setIr(e.target.checked)} /> Líquido de IR</span>
+            <span className="muted" style={{ fontSize: 12, marginTop: 6 }}>ganho 15% · FII 20%</span>
           </label>
           <label className="field">Taxa livre de risco (% a.a.)<input type="number" value={rf} step="0.25" onChange={(e) => setRf(Number(e.target.value))} /></label>
           <label className="field">Filosofia / perfil

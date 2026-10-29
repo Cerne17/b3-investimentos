@@ -183,13 +183,15 @@ def otimizar_carteira(
     indicadores: list[str] | None = None,
     periodo: Literal["1y", "2y", "5y", "10y"] = "2y",
     dy_min: float | None = None,
+    ir: bool = False,
 ) -> dict:
     """Otimização de carteira (Markowitz e variações) com alocação em cotas inteiras ao preço atual.
     filosofia: value_conservador | renda | defensivo | equilibrado | crescimento (define os indicadores).
     indicadores: sharpe, sortino, calmar, renda_risco, omega, min_vol, min_cvar, min_drawdown, risk_parity, max_dy, max_retorno.
+    Renda fixa: CDI, CDI-110, SELIC, IPCA+6, PRE-13. ir=True otimiza com retornos líquidos de imposto de renda.
     Pesos em fração (0.35 = 35%). dy_min: dividend yield mínimo da carteira em % a.a. (ex.: 8).
     Cada carteira traz a renda mensal estimada da alocação. Sempre inclui a carteira de pesos iguais como referência."""
-    r = portfolio.otimizar(tickers, valor, peso_min, peso_max, indicadores, filosofia, periodo, dy_min=dy_min)
+    r = portfolio.otimizar(tickers, valor, peso_min, peso_max, indicadores, filosofia, periodo, dy_min=dy_min, ir=ir)
     r.pop("fronteira", None)
     return r
 
@@ -207,6 +209,7 @@ def simular_carteira_monte_carlo(
     simulacoes: int = 3000,
     proventos: Literal["reinvestir", "sacar"] = "reinvestir",
     meta_tipo: Literal["patrimonio", "renda"] = "patrimonio",
+    ir: bool = False,
 ) -> dict:
     """Monte Carlo do patrimônio de uma carteira (retorno total, rebalanceada aos pesos; aporte no fim do mês).
     Retorna percentis do valor final, probabilidade de perda e de superar a renda fixa, CAGR e drawdown por cenário;
@@ -214,9 +217,10 @@ def simular_carteira_monte_carlo(
     em reais de hoje. Cripto: use o ticker em reais (BTC-BRL).
     proventos: reinvestir (retorno total) ou sacar (patrimônio cresce só pelo preço; proventos viram renda).
     A chave `renda` traz a renda mensal (média 12m) no 1º ano e no fim, o total recebido e o yield on cost.
-    meta_tipo=renda: `meta` é a renda mensal desejada no fim do horizonte."""
+    meta_tipo=renda: `meta` é a renda mensal desejada no fim do horizonte.
+    ir=True: proventos líquidos de IR e `final.liquido` = patrimônio depois do IR de um resgate total no fim."""
     r = montecarlo.simular_carteira(tickers, pesos, valor_inicial, aporte_mensal, anos, simulacoes, metodo, meta=meta,
-                                    inflacao=inflacao, proventos=proventos, meta_tipo=meta_tipo)
+                                    inflacao=inflacao, proventos=proventos, meta_tipo=meta_tipo, ir=ir)
     for k in ("bandas", "caminhos", "histograma", "investido", "renda_fixa", "datas"):
         r.pop(k, None)
     r["renda"].pop("bandas", None)

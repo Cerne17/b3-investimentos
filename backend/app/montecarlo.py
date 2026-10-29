@@ -16,6 +16,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from . import impostos
 from .portfolio import exigir_historico, proventos_alinhados, retornos_alinhados
 from .yahoo import TAXA_LIVRE_RISCO, ajustar_splits, cotacao, eh_cripto, history
 
@@ -87,9 +88,11 @@ def simular_carteira(
     semente: int | None = 42,
     proventos: str = "reinvestir",
     meta_tipo: str = "patrimonio",
+    ir: bool = False,
 ) -> dict:
     """proventos: "reinvestir" (retorno total) ou "sacar" (o patrimônio cresce só pelo preço; o provento é renda).
-    meta_tipo: "patrimonio" (valor final) ou "renda" (renda mensal média dos últimos 12 meses do horizonte)."""
+    meta_tipo: "patrimonio" (valor final) ou "renda" (renda mensal média dos últimos 12 meses do horizonte).
+    ir: desconta o IR dos proventos (todo mês) e o IR sobre o ganho num resgate total no fim (ver impostos.py)."""
     if proventos not in ("reinvestir", "sacar"):
         raise ValueError("proventos deve ser 'reinvestir' ou 'sacar'.")
     if meta_tipo not in ("patrimonio", "renda"):
@@ -110,8 +113,14 @@ def simular_carteira(
 
     R_df, series, dias_ano = retornos_alinhados(tickers, periodo)
     exigir_historico(R_df, tickers, series, 120)
+    Dm = proventos_alinhados(tickers, series, R_df).to_numpy()
     r = R_df.to_numpy() @ w  # carteira rebalanceada aos pesos-alvo (retorno total)
-    d = proventos_alinhados(tickers, series, R_df).to_numpy() @ w  # parte do retorno que veio de proventos
+    d = Dm @ w  # parte do retorno que veio de proventos
+    tx = impostos.aliquotas(tickers) if ir else None
+    if ir:  # provento chega líquido do IR retido na fonte
+        tp = np.array(tx["proventos"])
+        r, d = r - Dm @ (w * tp), Dm @ (w * (1 - tp))
+    del Dm
 
     meses = max(1, round(anos * 12))
     dpm = dias_ano / 12
@@ -163,8 +172,18 @@ def simular_carteira(
     for m in range(meses):
         renda_fixa[m + 1] = renda_fixa[m] * (1 + rf_m) + aporte_mensal
     final = V[:, -1]
-    # sacando, o resultado inclui o que foi recebido em proventos (somado, sem render)
-    resultado = final + recebido if sacar else final
+    rf_fim = renda_fixa[-1]
+    imposto = np.zeros(n)
+    if ir:
+        # IR sobre o ganho nominal num resgate total no fim; alíquota média ponderada pelos pesos
+        tg = float(w @ np.array(tx["ganho"]))
+        corr = (1 + inflacao) ** (meses / 12)
+        inv_nom = valor_inicial + aporte_mensal * sum((1 + inflacao) ** (m / 12) for m in range(1, meses + 1))
+        imposto = tg * np.maximum(final * corr - inv_nom, 0) / corr
+        rf_fim = renda_fixa[-1] - impostos.GANHO["RF"] * max(renda_fixa[-1] * corr - inv_nom, 0) / corr
+    liquido = final - imposto
+    # sacando, o resultado inclui o que foi recebido em proventos (somado, sem render); com IR, depois do resgate
+    resultado = liquido + recebido if sacar else liquido
     indice = np.concatenate([np.ones((n, 1)), np.cumprod(G_total, axis=1)], axis=1)  # retorno total ponderado no tempo
     cagr = indice[:, -1] ** (12 / meses) - 1
     dd = _mdd(I)
@@ -182,6 +201,7 @@ def simular_carteira(
             "dias_historico": len(R_df),
             "retorno_hist_anual": round(float((1 + r).prod() ** (dias_ano / len(r)) - 1) * 100, 2),
             "dy_hist_anual": round(float(d.mean() * dias_ano) * 100, 2),
+            "ir": {"aliquota_ganho_media": round(float(w @ np.array(tx["ganho"])) * 100, 2), "classes": tx["tabela"]} if ir else None,
             "proventos": proventos,
             "vol_hist_anual": round(float(r.std(ddof=1) * math.sqrt(dias_ano)) * 100, 2),
         },
@@ -194,10 +214,12 @@ def simular_carteira(
             **{f"p{p}": r2(v) for p, v in zip(PERCENTIS, np.percentile(final, PERCENTIS))},
             "media": r2(final.mean()),
             "investido": r2(investido[-1]),
-            "renda_fixa": r2(renda_fixa[-1]),
+            "renda_fixa": r2(rf_fim),
+            "liquido": pct(liquido) if ir else None,
+            "imposto": pct(imposto) if ir else None,
             # com saque, as comparações usam patrimônio + proventos recebidos
             "prob_perda": r2((resultado < investido[-1]).mean() * 100),
-            "prob_superar_renda_fixa": r2((resultado > renda_fixa[-1]).mean() * 100),
+            "prob_superar_renda_fixa": r2((resultado > rf_fim).mean() * 100),
             # perda frente ao total aportado no pior cenário de 5% (0 = mesmo esse cenário termina no lucro)
             "perda_95": r2(max(0.0, investido[-1] - q5)),
             "perda_media_5_piores": r2(max(0.0, investido[-1] - resultado[resultado <= q5].mean())),

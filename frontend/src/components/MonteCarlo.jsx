@@ -107,10 +107,11 @@ function ResultadoCarteira({ r, meta }) {
       <div className="grid kpis compacto">
         <Kpi label={`Patrimônio mediano em ${p.anos} ano${p.anos > 1 ? 's' : ''}`} value={fmt.brl(f.p50)}
           hint={sacar ? `Aportado: ${fmt.brl(f.investido)} · + ${fmt.brl(r.renda.recebido.p50)} sacados` : `Aportado: ${fmt.brl(f.investido)}`} />
+        {f.liquido && <Kpi label="Depois do IR (resgate no fim)" value={fmt.brl(f.liquido.p50)} hint={`IR mediano ${fmt.brl(f.imposto.p50)} · alíquota média ${fmt.pct(p.ir.aliquota_ganho_media, 1)}`} />}
         <Kpi label="Faixa de 90% dos cenários" value={<span style={{ fontSize: 18 }}>{fmt.big(f.p5)} – {fmt.big(f.p95)}</span>} hint="percentis 5 e 95" />
         <Kpi label={sacar ? 'Chance de patrimônio + sacado ficar abaixo do aportado' : 'Chance de terminar abaixo do aportado'} value={fmt.pct(f.prob_perda, 1)} className={f.prob_perda > 10 ? 'neg' : ''}
           hint={f.perda_media_5_piores > 0 ? `Nos 5% piores: perda média de ${fmt.brl(f.perda_media_5_piores)}` : 'Mesmo os 5% piores cenários terminam no lucro'} />
-        <Kpi label="Chance de superar a renda fixa" value={fmt.pct(f.prob_superar_renda_fixa, 1)} hint={`Renda fixa no fim: ${fmt.brl(f.renda_fixa)}`} />
+        <Kpi label="Chance de superar a renda fixa" value={fmt.pct(f.prob_superar_renda_fixa, 1)} hint={`Renda fixa no fim: ${fmt.brl(f.renda_fixa)}${p.ir ? ' (líquida de IR)' : ''}`} />
         <Kpi label={`Retorno anual${real ? ' real' : ''} (mediana)`} value={signed(f.cagr.p50)} className={signClass(f.cagr.p50)} hint={`p5 ${signed(f.cagr.p5)} · p95 ${signed(f.cagr.p95)}`} />
         <Kpi label="Maior queda no caminho (mediana)" value={signed(f.max_drawdown.p50)} className="neg" hint={`1 em 20 cenários: ${signed(f.max_drawdown.p95)} ou pior`} />
       </div>
@@ -246,6 +247,7 @@ export default function MonteCarlo({ preset }) {
   const [metaTipo, setMetaTipo] = useState('patrimonio')
   const [metaRenda, setMetaRenda] = useState(3000)
   const [proventos, setProventos] = useState('reinvestir')
+  const [ir, setIr] = useState(false)
   const [real, setReal] = useState(true)
   const [inflacao, setInflacao] = useState(4.5)
   const [metodo, setMetodo] = useState('bootstrap')
@@ -288,7 +290,7 @@ export default function MonteCarlo({ preset }) {
         const r = await api.mcCarteira({
           tickers: itens.map((x) => x.ticker), pesos: itens.map((x) => Number(x.peso) || 0), valor_inicial: Number(valor),
           aporte_mensal: Number(aporte), anos: Number(anos), simulacoes: Number(sims), metodo, periodo,
-          meta: modo === 'meta' ? Number(metaTipo === 'renda' ? metaRenda : meta) : null, meta_tipo: metaTipo, proventos,
+          meta: modo === 'meta' ? Number(metaTipo === 'renda' ? metaRenda : meta) : null, meta_tipo: metaTipo, proventos, ir,
           inflacao: real ? Number(inflacao) / 100 : 0,
         })
         setRes({ modo, r })
@@ -338,6 +340,10 @@ export default function MonteCarlo({ preset }) {
               <label className="field">Valor inicial (R$)<input type="number" min="0" value={valor} onChange={(e) => setValor(e.target.value)} /></label>
               <label className="field">Aporte mensal (R$)<input type="number" min="0" value={aporte} onChange={(e) => setAporte(e.target.value)} /></label>
               <label className="field">Anos<input type="number" min="1" max="40" value={anos} onChange={(e) => setAnos(e.target.value)} /></label>
+              <label className="field" title="Proventos líquidos (FII e dividendos de ações isentos, ETF 15%) e IR sobre o ganho num resgate total no fim (15%; FIIs 20%). Isenções mensais e IR de rebalanceamento não entram.">
+                <span><input type="checkbox" checked={ir} onChange={(e) => setIr(e.target.checked)} /> Descontar IR</span>
+                <span className="muted" style={{ fontSize: 12, marginTop: 6 }}>resgate no fim</span>
+              </label>
               <label className="field">Proventos
                 <select value={proventos} onChange={(e) => setProventos(e.target.value)}>
                   <option value="reinvestir">Reinvestir</option>

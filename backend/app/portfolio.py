@@ -305,8 +305,11 @@ def otimizar(
     periodo: str = "2y",
     taxa_livre_risco: float | None = None,
     dy_min: float | None = None,
+    ir: bool = False,
 ) -> dict:
-    """dy_min: dividend yield mínimo da carteira em % a.a. (restrição em todas as carteiras otimizadas)."""
+    """dy_min: dividend yield mínimo da carteira em % a.a. (restrição em todas as carteiras otimizadas).
+    ir: otimiza com retornos líquidos de IR — ganho de preço x (1 - alíquota de ganho da classe), proventos x
+    (1 - alíquota de proventos) e taxa livre de risco x 0,85 (renda fixa de longo prazo)."""
     tickers = list(dict.fromkeys(t.strip().upper().replace(".SA", "") for t in tickers if t.strip()))
     n = len(tickers)
     if n < 2:
@@ -325,6 +328,14 @@ def otimizar(
     R_df, series, dias = retornos_alinhados(tickers, periodo)
     exigir_historico(R_df, tickers, series, 60)
     R = R_df.to_numpy()
+    tabela_ir = None
+    if ir:
+        from . import impostos
+        tx = impostos.aliquotas(tickers)
+        Dm = proventos_alinhados(tickers, series, R_df).to_numpy()
+        R = (R - Dm) * (1 - np.array(tx["ganho"])) + Dm * (1 - np.array(tx["proventos"]))
+        rf = rf * (1 - impostos.GANHO["RF"])
+        tabela_ir = tx["tabela"]
     mu = R.mean(axis=0) * dias
     cov = np.cov(R, rowvar=False) * dias
     dy = np.array([s[2] for s in series])
@@ -391,7 +402,7 @@ def otimizar(
 
     return {
         "parametros": {"tickers": tickers, "valor": valor, "peso_min": peso_min, "peso_max": peso_max, "periodo": periodo,
-                       "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores, "dy_min": dy_min,
+                       "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores, "dy_min": dy_min, "ir": tabela_ir,
                        "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"), "pregoes": len(R_df), "dias_ano": dias},
         "ativos": ativos,
         "correlacao": {"tickers": tickers, "matriz": np.corrcoef(R, rowvar=False).round(3).tolist()},
