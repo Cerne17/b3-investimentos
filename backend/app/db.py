@@ -180,6 +180,12 @@ CREATE TABLE IF NOT EXISTS proventos (
     valor  REAL NOT NULL,
     PRIMARY KEY (codigo, data)
 );
+CREATE TABLE IF NOT EXISTS series_bcb (
+    serie  TEXT NOT NULL,   -- cdi | selic | ipca (SGS do Banco Central, em %)
+    data   TEXT NOT NULL,
+    valor  REAL NOT NULL,
+    PRIMARY KEY (serie, data)
+);
 DROP VIEW IF EXISTS ativos;
 CREATE VIEW ativos AS
     SELECT 'ETF' AS tipo, {cols}, pl, pvp FROM etfs

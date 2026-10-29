@@ -9,6 +9,7 @@ import yfinance as yf
 from scipy.optimize import minimize
 
 from . import repository as repo
+from . import rendafixa
 from .yahoo import TAXA_LIVRE_RISCO, ajustar_splits, cotacao, eh_cripto, history
 
 DIAS = 252
@@ -346,7 +347,8 @@ def otimizar(
             precos.append(s[1])
     precos = np.array(precos)
 
-    frac = np.array([eh_cripto(t) for t in tickers])
+    # cripto e renda fixa compram valores fracionários (renda fixa: em reais)
+    frac = np.array([eh_cripto(t) or rendafixa.eh_renda_fixa(t) for t in tickers])
 
     def montar(nome, chave, w, descricao):
         aloc = alocar(w, precos, valor, peso_max, frac)
@@ -368,6 +370,9 @@ def otimizar(
 
     fundamentos = {}
     for t in tickers:
+        if rendafixa.eh_renda_fixa(t):
+            fundamentos[t] = {"tipo": "RF", "categoria": "Renda fixa", "nome_pregao": rendafixa.nome(t)}
+            continue
         for tipo in (("cripto",) if eh_cripto(t) else ("acao", "fii", "etf")):
             d = repo.obter(tipo, t)
             if d:

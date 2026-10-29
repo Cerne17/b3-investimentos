@@ -5,10 +5,11 @@ import { fmt, signClass, signed } from '../format.js'
 import BuscaAtivo from './BuscaAtivo.jsx'
 import { BarChart, MultiLineChart } from './Charts.jsx'
 import { TITULOS } from './live/comum.jsx'
+import { ehCripto, ehRendaFixa } from '../lib/ativos.js'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 const cor = (i) => CORES[i] || 'var(--text-muted)'
-const CLASSES = { ACAO: 'Ações', FII: 'FIIs', ETF: 'ETFs', CRIPTO: 'Cripto' }
+const CLASSES = { ACAO: 'Ações', FII: 'FIIs', ETF: 'ETFs', CRIPTO: 'Cripto', RF: 'Renda fixa' }
 const TIPO_ROTA = { ACAO: 'acoes', FII: 'fiis', ETF: 'etfs', CRIPTO: 'criptos' }
 const PERIODOS = [
   { k: '1d', l: 'Hoje', intervalo: '5m', minutos: 5 },
@@ -181,7 +182,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
 
   // proventos por cota dos últimos 12 meses (Yahoo): ações, FIIs e ETFs
   useEffect(() => {
-    const pagaveis = tickers.filter((t) => !/-(BRL|USD)$/.test(t))
+    const pagaveis = tickers.filter((t) => !ehCripto(t) && !ehRendaFixa(t))
     if (!pagaveis.length) return
     api.proventosRecentes(pagaveis).then(setProvs).catch(() => {})
   }, [tickers.join(',')])
@@ -197,12 +198,12 @@ export default function HomeBroker({ onOpen, onSimular }) {
     const ant = q.fechamento_anterior
     const varDia = preco != null && ant ? (preco - ant) * p.quantidade : null
     const yh = provs[p.ticker]?.length ? provs[p.ticker].reduce((a, x) => a + x.valor, 0) : null // sem dados no Yahoo: usa a base
-    const prov12 = d.tipo === 'CRIPTO' || /-(BRL|USD)$/.test(p.ticker) ? 0 : (yh ?? d.proventos_12m)
+    const prov12 = d.tipo === 'CRIPTO' || ehCripto(p.ticker) || ehRendaFixa(p.ticker) ? 0 : (yh ?? d.proventos_12m)
     return {
       ...p, i, preco, valor, custo, nome: q.nome || d.nome_pregao || d.razao_social, erro: q.erro,
       var_pct: q.variacao_pct, var_dia: varDia, resultado: valor != null && custo ? valor - custo : null,
       resultado_pct: valor != null && custo ? (valor / custo - 1) * 100 : null,
-      tipo: d.tipo || (/-(BRL|USD)$/.test(p.ticker) ? 'CRIPTO' : null), codigo: d.codigo,
+      tipo: d.tipo || (ehCripto(p.ticker) ? 'CRIPTO' : ehRendaFixa(p.ticker) ? 'RF' : null), codigo: d.codigo,
       dy: prov12 && preco ? (prov12 / preco) * 100 : d.tipo === 'CRIPTO' ? null : d.dividend_yield, prov12,
       renda_mes: prov12 ? (prov12 * p.quantidade) / 12 : null, yoc: prov12 && p.preco_medio ? (prov12 / p.preco_medio) * 100 : null,
     }

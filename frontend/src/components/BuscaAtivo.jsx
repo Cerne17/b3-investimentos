@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { fmt } from '../format.js'
 
-// Autocomplete de ETFs/FIIs da base; Enter sem sugestão usa o texto como ticker do Yahoo
+// Autocomplete de ações, ETFs, FIIs, criptos e renda fixa (CDI, IPCA+6...); Enter sem sugestão usa o texto como ticker
 export default function BuscaAtivo({ onAdd, label = 'Buscar ativo (ETF, FII ou qualquer ticker do Yahoo)', width = 320 }) {
   const [q, setQ] = useState('')
   const [sug, setSug] = useState([])
@@ -37,7 +37,7 @@ export default function BuscaAtivo({ onAdd, label = 'Buscar ativo (ETF, FII ou q
   return (
     <div className="picker field" ref={box}>
       {label}
-      <input className="wide" style={{ width }} value={q} placeholder="ex.: MXRF, ouro, logística, PETR4"
+      <input className="wide" style={{ width }} value={q} placeholder="ex.: MXRF, PETR4, BTC, CDI, IPCA+6"
         onChange={(e) => { setQ(e.target.value); setAberto(true) }} onFocus={() => setAberto(true)} onKeyDown={onKey} />
       {aberto && q.trim() && (
         <div className="suggest">
@@ -47,7 +47,7 @@ export default function BuscaAtivo({ onAdd, label = 'Buscar ativo (ETF, FII ou q
               <b>{s.ticker || s.codigo}</b>
               <span className="badge">{s.tipo}</span>
               <span className="muted" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.nome_pregao} · {s.categoria}</span>
-              <span className="num" style={{ marginLeft: 'auto' }}>{s.status === 'ok' ? fmt.brl(s.preco) : 'sem cotação'}</span>
+              <span className="num" style={{ marginLeft: 'auto' }}>{s.tipo === 'RF' ? 'índice' : s.status === 'ok' ? fmt.brl(s.preco) : 'sem cotação'}</span>
             </button>
           ))}
           <button onClick={() => escolher(q.trim())}>

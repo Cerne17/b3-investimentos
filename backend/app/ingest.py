@@ -7,6 +7,7 @@ Uso:
     python -m app.ingest --skip-cvm       # sem o informe CVM
     python -m app.ingest --only acao      # só ações (lista do Formulário Cadastral da CVM)
     python -m app.ingest --pendentes      # só ativos que ainda não têm dados do Yahoo
+    python -m app.ingest --only rendafixa # só as séries do Banco Central (CDI, Selic, IPCA)
     python -m app.ingest --only cripto    # só criptomoedas (CoinGecko + Yahoo), --limit = quantas moedas
 """
 import argparse
@@ -204,7 +205,7 @@ def aplicar_cvm() -> int:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--only", choices=["etf", "fii", "acao", "cripto"])
+    p.add_argument("--only", choices=["etf", "fii", "acao", "cripto", "rendafixa"])
     p.add_argument("--skip-yahoo", action="store_true")
     p.add_argument("--skip-cvm", action="store_true")
     p.add_argument("--pendentes", action="store_true")
@@ -212,6 +213,11 @@ def main() -> None:
     p.add_argument("--limit", type=int)
     a = p.parse_args()
 
+    if a.only == "rendafixa":
+        from . import rendafixa
+        init_db()
+        print("séries do Banco Central:", rendafixa.salvar())
+        return
     if a.only == "cripto":
         cripto.coletar(a.limit or 150)
         return
@@ -231,6 +237,8 @@ def main() -> None:
         coletar("acoes", a.workers, a.pendentes, a.limit)
     if a.only is None:
         cripto.coletar()
+        from . import rendafixa
+        print("séries do Banco Central:", rendafixa.salvar())
 
 
 if __name__ == "__main__":

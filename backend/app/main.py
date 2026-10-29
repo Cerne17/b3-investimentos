@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ingest, montecarlo, portfolio, repository as repo, yahoo
+from . import ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
 from .db import ROOT, SOMENTE_LEITURA, init_db
 
 TAGS = [
@@ -264,7 +264,12 @@ def sql(c: ConsultaSQL):
 
 @app.get("/api/busca", tags=["Análises"], summary="Busca ETFs e FIIs (autocomplete)")
 def buscar(q: str = Query(..., min_length=1, examples=["MXRF"]), limite: int = Query(15, le=50)):
-    return repo.buscar(q, limite)
+    """Ações, ETFs, FIIs e criptos da base; termos como "cdi", "ipca", "tesouro" sugerem títulos de renda fixa."""
+    try:
+        rf = rendafixa.buscar(q)
+    except Exception:
+        rf = []
+    return rf + repo.buscar(q, max(1, limite - len(rf)))
 
 
 # ---------------- Carteira ----------------

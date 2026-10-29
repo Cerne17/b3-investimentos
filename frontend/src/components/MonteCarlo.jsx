@@ -3,6 +3,7 @@ import { api } from '../api.js'
 import { fmt, signClass, signed } from '../format.js'
 import BuscaAtivo from './BuscaAtivo.jsx'
 import ImportarBroker from './ImportarBroker.jsx'
+import { ehCripto } from '../lib/ativos.js'
 import { FanChart, Histogram } from './Charts.jsx'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
@@ -10,7 +11,6 @@ const cor = (i) => CORES[i] || 'var(--text-muted)'
 const MODOS = [['carteira', 'Carteira'], ['meta', 'Meta financeira'], ['ativo', 'Ativo']]
 const METODOS = [['bootstrap', 'Bootstrap do histórico'], ['t', 't de Student (caudas gordas)'], ['normal', 'Normal (GBM)']]
 const HORIZONTES = [[1, '1 mês'], [3, '3 meses'], [6, '6 meses'], [12, '1 ano'], [24, '2 anos'], [60, '5 anos']]
-const ehCripto = (t) => /-(BRL|USD)$/.test(t)
 
 // eixo compacto (R$ 1,2 mi) e valor completo no tooltip
 const brlEixo = (v, eixo) => (eixo ? fmt.big(v) : fmt.brl(v))

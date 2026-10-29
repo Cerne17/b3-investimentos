@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import yfinance as yf
 
+from . import rendafixa
+
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 if os.getenv("VERCEL"):  # home é somente leitura na Vercel; o cache de fuso do yfinance vai para /tmp
@@ -67,7 +69,10 @@ def _em_reais(hist: pd.DataFrame, period: str, interval: str) -> pd.DataFrame:
 
 
 def history(ticker: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
-    """Histórico OHLCV do Yahoo (sem ajuste de proventos); cripto em BRL é convertida a partir do par em dólar."""
+    """Histórico OHLCV do Yahoo (sem ajuste de proventos); cripto em BRL é convertida a partir do par em dólar;
+    renda fixa (CDI, IPCA+6...) vem do índice do Banco Central, um ponto por dia útil."""
+    if rendafixa.eh_renda_fixa(ticker):
+        return rendafixa.history(ticker, period)
     usd = simbolo_usd(ticker)
     for tentativa in range(2):  # o Yahoo devolve vazio de vez em quando sob carga; uma nova tentativa resolve
         hist = yf.Ticker(usd or yahoo_symbol(ticker)).history(period=period, interval=interval, auto_adjust=False)
@@ -352,6 +357,8 @@ def _cache(chave, fn):
 
 
 def cotacao(ticker: str) -> dict:
+    if rendafixa.eh_renda_fixa(ticker):
+        return rendafixa.cotacao(ticker)
     return _cache(("cot", ticker.upper()), lambda: _cotacao(ticker))
 
 
@@ -464,7 +471,7 @@ def proventos(ticker: str) -> list[dict]:
     hit = _PROVENTOS.get(ticker)
     if hit and time.time() - hit[0] < 6 * 3600:
         return hit[1]
-    if eh_cripto(ticker):
+    if eh_cripto(ticker) or rendafixa.eh_renda_fixa(ticker):
         out = []
     else:
         hist = history(ticker, "1y")
