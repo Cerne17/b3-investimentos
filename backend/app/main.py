@@ -313,6 +313,23 @@ class ArquivoB3(BaseModel):
     nome: str = Field("extrato.xlsx", description="Nome do arquivo (a extensão define o formato)")
 
 
+class PedidoAporte(BaseModel):
+    tickers: list[str] = Field(..., min_length=1, examples=[["MXRF11", "BOVA11", "CDI"]])
+    pesos: list[float] = Field(..., examples=[[0.3, 0.3, 0.4]], description="Pesos-alvo (normalizados)")
+    quantidades: list[float] | None = Field(None, examples=[[100, 2, 500]], description="Cotas que você já tem (vazio = carteira nova)")
+    aporte: float = Field(..., gt=0, examples=[1000], description="Dinheiro novo deste mês (R$)")
+
+
+@app.post("/api/carteira/aporte", tags=["Carteira"], summary="Onde aportar: compras que aproximam a carteira do alvo")
+def onde_aportar(p: PedidoAporte):
+    """Só compras, sem vender: com o aporte, quantas cotas comprar de cada ativo para chegar o mais perto possível
+    dos pesos-alvo (ex.: os de uma carteira otimizada), a partir das quantidades atuais e do preço de agora."""
+    try:
+        return portfolio.aportar(p.tickers, p.pesos, p.quantidades, p.aporte)
+    except (ValueError, LookupError) as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post("/api/carteira/desempenho", tags=["Carteira"], summary="Desempenho real a partir das operações")
 def desempenho_carteira(p: PedidoDesempenho):
     """Valor da carteira dia a dia, total investido, proventos recebidos (na data ex, pela posição da véspera),

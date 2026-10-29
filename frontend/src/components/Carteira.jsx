@@ -24,7 +24,50 @@ const LINHAS = [
   ['renda_risco', 'Renda por risco', (v) => fmt.num(v, 2), true],
 ]
 
-function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker }) {
+function OndeAportar({ c, tickers, aporte, qtdAtuais }) {
+  const [r, setR] = useState(null)
+  const [erro, setErro] = useState(null)
+  const [carregando, setCarregando] = useState(false)
+  const calcular = () => {
+    setCarregando(true); setErro(null)
+    api.aporte({ tickers, pesos: tickers.map((t) => c.pesos[t]), quantidades: tickers.map((t) => qtdAtuais[t] || 0), aporte: Number(aporte) })
+      .then(setR).catch((e) => setErro(e.message)).finally(() => setCarregando(false))
+  }
+  useEffect(() => { setR(null) }, [aporte, JSON.stringify(qtdAtuais)])
+  if (!(Number(aporte) > 0)) return null
+  return (
+    <div style={{ marginTop: 12 }}>
+      {!r && <button className="btn" onClick={calcular} disabled={carregando}>{carregando ? 'Calculando…' : `Onde aportar ${fmt.brl(Number(aporte))}`}</button>}
+      {erro && <div className="alert">{erro}</div>}
+      {r && (
+        <>
+          <div className="eyebrow" style={{ marginBottom: 4 }}>Aporte de {fmt.brl(r.aporte)} · só compras</div>
+          <table>
+            <thead><tr><th className="txt">Ativo</th><th title="Peso hoje">Hoje</th><th>Alvo</th><th>Comprar</th><th>Valor</th><th title="Peso depois da compra">Depois</th></tr></thead>
+            <tbody>
+              {r.ativos.map((x) => (
+                <tr key={x.ticker} style={{ cursor: 'default', opacity: x.valor_compra > 0 ? 1 : 0.6 }}>
+                  <td className="txt">{x.ticker}</td>
+                  <td className="num">{fmt.pct(x.peso_atual, 1)}</td>
+                  <td className="num">{fmt.pct(x.peso_alvo, 1)}</td>
+                  <td className="num"><b>{x.fracionario ? fmt.num(x.comprar, x.comprar < 1 ? 6 : 2) : x.comprar}</b></td>
+                  <td className="num">{fmt.brl(x.valor_compra)}</td>
+                  <td className="num">{fmt.pct(x.peso_depois, 1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Usa {fmt.brl(r.usado)}{r.sobra > 0.01 ? ` (sobram ${fmt.brl(r.sobra)})` : ''} · fora do alvo: {fmt.pct(r.fora_do_alvo_antes, 1)} → {fmt.pct(r.fora_do_alvo_depois, 1)} da carteira.
+            {!Object.keys(qtdAtuais).length && ' Sem posições atuais: importe do Home Broker para considerar o que você já tem.'}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker, aporte, qtdAtuais }) {
   const a = c.alocacao
   return (
     <div className="card port-card">
@@ -76,6 +119,7 @@ function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker }) {
           {onBroker && <button className="btn" onClick={() => onBroker(c)} title="Cria uma carteira no Home Broker com estas quantidades e o preço atual como preço médio">Acompanhar no Home Broker</button>}
         </div>
       )}
+      <OndeAportar c={c} tickers={tickers} aporte={aporte} qtdAtuais={qtdAtuais || {}} />
     </div>
   )
 }
@@ -89,6 +133,8 @@ export default function Carteira({ onSimular, onBroker }) {
   const [periodo, setPeriodo] = useState('2y')
   const [rf, setRf] = useState(14)
   const [dyMin, setDyMin] = useState('')
+  const [aporte, setAporte] = useState('')
+  const [qtdAtuais, setQtdAtuais] = useState({}) // posições trazidas do Home Broker, para "onde aportar"
   const [filosofia, setFilosofia] = useState('value_conservador')
   const [inds, setInds] = useState(['sharpe', 'sortino', 'calmar', 'renda_risco'])
   const [res, setRes] = useState(null)
@@ -107,7 +153,7 @@ export default function Carteira({ onSimular, onBroker }) {
 
   const [importada, setImportada] = useState(null)
   const importarInicio = ({ nome, tickers: lista }) => {
-    setTickers(lista); setRes(null); setErro(null); setImportada(nome)
+    setTickers(lista); setRes(null); setErro(null); setImportada(nome); setQtdAtuais({})
     // peso máximo precisa permitir somar 100% com esse número de ativos
     setPmax((m) => Math.max(m, Math.ceil(100 / lista.length)))
   }
@@ -129,7 +175,7 @@ export default function Carteira({ onSimular, onBroker }) {
   }
   const tks = res?.parametros.tickers || tickers
   const acoes = {
-    valor: res?.parametros.valor,
+    valor: res?.parametros.valor, aporte, qtdAtuais,
     onSimular,
     onBroker: onBroker && ((c) => {
       const a = c.alocacao
@@ -146,7 +192,8 @@ export default function Carteira({ onSimular, onBroker }) {
       <div className="card">
         <div className="filters" style={{ marginBottom: 8 }}>
           <BuscaAtivo onAdd={add} />
-          <ImportarBroker onInicio={importarInicio} onValores={({ total }) => setValor(Math.round(total))} />
+          <ImportarBroker onInicio={importarInicio}
+            onValores={({ total, tickers: ts, quantidades }) => { setValor(Math.round(total)); setQtdAtuais(Object.fromEntries(ts.map((t, i) => [t, quantidades[i]]))) }} />
         </div>
         {importada && <p className="muted" style={{ fontSize: 13, margin: '0 0 8px' }}>Ativos e valor de mercado trazidos de <b>{importada}</b>. A otimização ignora os pesos atuais e propõe novos.</p>}
         <div className="chips" style={{ gap: 8 }}>
@@ -169,6 +216,9 @@ export default function Carteira({ onSimular, onBroker }) {
           </label>
           <label className="field" title="Restrição: toda carteira otimizada precisa ter pelo menos este dividend yield (proventos dos últimos 12 meses). Vazio = sem restrição.">
             DY mínimo (% a.a.)<input type="number" min="0" max="50" step="0.5" placeholder="sem mínimo" value={dyMin} onChange={(e) => setDyMin(e.target.value)} />
+          </label>
+          <label className="field" title="Dinheiro novo deste mês: cada carteira otimizada mostra quantas cotas comprar para chegar perto do alvo, sem vender nada">
+            Aporte do mês (R$)<input type="number" min="0" step="100" placeholder="opcional" value={aporte} onChange={(e) => setAporte(e.target.value)} />
           </label>
           <label className="field">Taxa livre de risco (% a.a.)<input type="number" value={rf} step="0.25" onChange={(e) => setRf(Number(e.target.value))} /></label>
           <label className="field">Filosofia / perfil

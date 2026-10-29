@@ -399,3 +399,72 @@ def otimizar(
         "pesos_iguais": iguais,
         "fronteira": fronteira(mu, cov, peso_min, peso_max, extra=extra),
     }
+
+
+# ---------- onde aportar ----------
+
+def aportar(tickers: list[str], pesos: list[float], quantidades: list[float] | None, aporte: float) -> dict:
+    """Compras (sem vender nada) que aproximam a carteira atual dos pesos-alvo usando só o aporte.
+
+    1. alvo de cada ativo = peso x (valor atual + aporte); falta = alvo - valor atual (só o que está abaixo);
+    2. se as faltas somam mais que o aporte, todas encolhem na mesma proporção;
+    3. cripto e renda fixa compram o valor exato; os demais, cotas inteiras arredondadas para baixo e, com a sobra,
+       uma cota por vez no ativo que mais reduz o desvio em relação ao alvo."""
+    tickers = [t.strip().upper().replace(".SA", "") for t in tickers]
+    n = len(tickers)
+    w = np.array(pesos, float)
+    if len(w) != n or w.min() < 0 or w.sum() <= 0:
+        raise ValueError("Informe um peso não negativo por ativo.")
+    w = w / w.sum()
+    q0 = np.zeros(n) if not quantidades else np.array(quantidades, float)
+    if len(q0) != n or q0.min() < 0:
+        raise ValueError("Informe uma quantidade atual (≥ 0) por ativo.")
+    if aporte <= 0:
+        raise ValueError("O aporte precisa ser positivo.")
+    precos = np.array([float(cotacao(t)["preco"]) for t in tickers])
+    frac = np.array([eh_cripto(t) or rendafixa.eh_renda_fixa(t) for t in tickers])
+
+    atual = q0 * precos
+    total = atual.sum() + aporte
+    alvo = w * total
+    falta = np.maximum(alvo - atual, 0)
+    if falta.sum() > aporte:
+        falta *= aporte / falta.sum()
+    compra = np.where(frac, falta / precos, np.floor(falta / precos))
+    caixa = aporte - float(compra @ precos)
+    desvio = lambda c: float(np.sum((atual + c * precos - alvo) ** 2))
+    while True:  # cota a cota com a sobra
+        atual_d, melhor = desvio(compra), None
+        for i in np.where(~frac & (precos <= caixa + 1e-9))[0]:
+            c = compra.copy()
+            c[i] += 1
+            d = desvio(c)
+            if d < atual_d - 1e-9 and (melhor is None or d < melhor[0]):
+                melhor = (d, i)
+        if melhor is None:
+            break
+        compra[melhor[1]] += 1
+        caixa -= precos[melhor[1]]
+    # sobra pequena volta para os fracionários abaixo do alvo
+    if caixa > 0.01 and frac.any():
+        resto = np.where(frac, np.maximum(alvo - atual - compra * precos, 0), 0)
+        if resto.sum() > 0:
+            extra = np.minimum(resto, caixa * resto / resto.sum())
+            compra += np.where(frac, extra / precos, 0)
+            caixa -= float(extra.sum())
+    compra = np.where(frac, np.floor(compra * 1e8) / 1e8, compra)
+    depois = atual + compra * precos
+    peso = lambda v: v / v.sum() if v.sum() else v * 0
+    afast = lambda v: float(np.abs(peso(v) - w).sum() / 2 * 100)  # % da carteira fora do lugar
+    return {
+        "ativos": [
+            {"ticker": t, "preco": round(float(precos[i]), 6), "fracionario": bool(frac[i]),
+             "quantidade_atual": float(q0[i]), "valor_atual": round(float(atual[i]), 2),
+             "peso_atual": round(float(peso(atual)[i]) * 100, 2), "peso_alvo": round(float(w[i]) * 100, 2),
+             "comprar": float(compra[i]) if frac[i] else int(compra[i]), "valor_compra": round(float(compra[i] * precos[i]), 2),
+             "peso_depois": round(float(peso(depois)[i]) * 100, 2)}
+            for i, t in enumerate(tickers)
+        ],
+        "aporte": round(aporte, 2), "usado": round(aporte - caixa, 2), "sobra": round(caixa, 2),
+        "fora_do_alvo_antes": round(afast(atual), 2), "fora_do_alvo_depois": round(afast(depois), 2),
+    }

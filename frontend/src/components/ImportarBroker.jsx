@@ -4,7 +4,7 @@ import { carregar } from '../lib/broker.js'
 
 // Seletor que traz uma carteira do Home Broker (localStorage), ou todas juntas.
 // onInicio({ nome, tickers }) roda na hora; onValores({ tickers, valores, total }) depois das cotações,
-// com o valor de mercado de cada ativo (preço médio quando falta cotação).
+// com o valor de mercado de cada ativo (preço médio quando falta cotação) e as quantidades somadas.
 export default function ImportarBroker({ onInicio, onValores }) {
   const [carteiras] = useState(() => carregar().carteiras.filter((c) => c.posicoes.length))
   if (!carteiras.length) return null
@@ -20,7 +20,8 @@ export default function ImportarBroker({ onInicio, onValores }) {
     const valores = tickers.map((t) => posicoes.filter((p) => p.ticker === t)
       .reduce((s, p) => s + p.quantidade * (cot[t]?.preco || p.preco_medio), 0))
     const total = valores.reduce((a, b) => a + b, 0)
-    if (total > 0) onValores?.({ tickers, valores, total })
+    const quantidades = tickers.map((t) => posicoes.filter((p) => p.ticker === t).reduce((s, p) => s + p.quantidade, 0))
+    if (total > 0) onValores?.({ tickers, valores, total, quantidades })
   }
 
   return (
