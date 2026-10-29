@@ -89,10 +89,14 @@ def simular_carteira(
     proventos: str = "reinvestir",
     meta_tipo: str = "patrimonio",
     ir: bool = False,
+    anos_saque: float = 0,
+    saque_mensal: float = 0,
 ) -> dict:
     """proventos: "reinvestir" (retorno total) ou "sacar" (o patrimônio cresce só pelo preço; o provento é renda).
     meta_tipo: "patrimonio" (valor final) ou "renda" (renda mensal média dos últimos 12 meses do horizonte).
-    ir: desconta o IR dos proventos (todo mês) e o IR sobre o ganho num resgate total no fim (ver impostos.py)."""
+    ir: desconta o IR dos proventos (todo mês) e o IR sobre o ganho num resgate total no fim (ver impostos.py).
+    anos_saque, saque_mensal: depois de `anos` acumulando, saca `saque_mensal` (em reais de hoje se houver
+    inflação) por `anos_saque` anos; o patrimônio que zera fica zerado (o dinheiro acabou)."""
     if proventos not in ("reinvestir", "sacar"):
         raise ValueError("proventos deve ser 'reinvestir' ou 'sacar'.")
     if meta_tipo not in ("patrimonio", "renda"):
@@ -122,7 +126,9 @@ def simular_carteira(
         r, d = r - Dm @ (w * tp), Dm @ (w * (1 - tp))
     del Dm
 
-    meses = max(1, round(anos * 12))
+    macc = max(1, round(anos * 12))  # meses acumulando
+    msaq = max(0, round(anos_saque * 12)) if saque_mensal > 0 else 0
+    meses = macc + msaq
     dpm = dias_ano / 12
     dias = math.ceil(meses * dpm)
     n = int(min(simulacoes, MAX_PONTOS // dias, 20_000))
@@ -153,24 +159,35 @@ def simular_carteira(
     G = G / deflator
     G_total = G_total / deflator
     # V = V0·I + aporte·B para os mesmos sorteios (I: crescimento acumulado; B: aportes de 1 real acumulados)
+    # Na aposentadoria, W acumula saques de 1 real: V = V0·I + aporte·B - saque·W
     I = np.ones((n, meses + 1))
     B = np.zeros((n, meses + 1))
+    W = np.zeros((n, meses + 1)) if msaq else None
     for m in range(meses):
         I[:, m + 1] = I[:, m] * G[:, m]
-        B[:, m + 1] = B[:, m] * G[:, m] + 1
+        B[:, m + 1] = B[:, m] * G[:, m] + (1 if m < macc else 0)
+        if msaq:
+            W[:, m + 1] = W[:, m] * G[:, m] + (1 if m >= macc else 0)
     V = valor_inicial * I + aporte_mensal * B
+    vivo = np.ones((n, meses + 1), bool)
+    if msaq:
+        V = V - saque_mensal * W
+        vivo = np.minimum.accumulate(V > 0, axis=1)  # zerou uma vez, acabou
+        V = np.where(vivo, V, 0.0)
     renda = V[:, :-1] * Y  # proventos de cada mês (n, meses), em reais de hoje se houver inflação
     jan = np.minimum(np.arange(1, meses + 1), 12)
     c = np.concatenate([np.zeros((n, 1)), np.cumsum(renda, axis=1)], axis=1)
     renda_12m = (c[:, 1:] - c[:, np.arange(1, meses + 1) - jan]) / jan  # média mensal dos últimos 12 meses
     recebido = renda.sum(axis=1)
 
-    investido = valor_inicial + aporte_mensal * np.arange(meses + 1)
+    investido = valor_inicial + aporte_mensal * np.minimum(np.arange(meses + 1), macc)
     rf_m = ((1 + rf) / (1 + inflacao)) ** (1 / 12) - 1
     renda_fixa = np.empty(meses + 1)
     renda_fixa[0] = valor_inicial
     for m in range(meses):
-        renda_fixa[m + 1] = renda_fixa[m] * (1 + rf_m) + aporte_mensal
+        renda_fixa[m + 1] = max(0.0, renda_fixa[m] * (1 + rf_m) + (aporte_mensal if m < macc else -saque_mensal))
+    # total sacado na aposentadoria (só os meses em que ainda havia dinheiro)
+    sacado = saque_mensal * vivo[:, macc + 1:].sum(axis=1) if msaq else np.zeros(n)
     final = V[:, -1]
     rf_fim = renda_fixa[-1]
     imposto = np.zeros(n)
@@ -178,12 +195,16 @@ def simular_carteira(
         # IR sobre o ganho nominal num resgate total no fim; alíquota média ponderada pelos pesos
         tg = float(w @ np.array(tx["ganho"]))
         corr = (1 + inflacao) ** (meses / 12)
-        inv_nom = valor_inicial + aporte_mensal * sum((1 + inflacao) ** (m / 12) for m in range(1, meses + 1))
+        inv_nom = valor_inicial + aporte_mensal * sum((1 + inflacao) ** (m / 12) for m in range(1, macc + 1))
+        inv_rf = inv_nom
+        if msaq:  # o que foi sacado leva junto parte do custo (aproximação: custo baixa pelo valor sacado)
+            inv_rf = max(inv_nom - saque_mensal * msaq * corr ** 0.5, 0)
+            inv_nom = np.maximum(inv_nom - sacado * corr ** 0.5, 0)
         imposto = tg * np.maximum(final * corr - inv_nom, 0) / corr
-        rf_fim = renda_fixa[-1] - impostos.GANHO["RF"] * max(renda_fixa[-1] * corr - inv_nom, 0) / corr
+        rf_fim = renda_fixa[-1] - impostos.GANHO["RF"] * max(renda_fixa[-1] * corr - inv_rf, 0) / corr
     liquido = final - imposto
     # sacando, o resultado inclui o que foi recebido em proventos (somado, sem render); com IR, depois do resgate
-    resultado = liquido + recebido if sacar else liquido
+    resultado = (liquido + recebido if sacar else liquido) + sacado
     indice = np.concatenate([np.ones((n, 1)), np.cumprod(G_total, axis=1)], axis=1)  # retorno total ponderado no tempo
     cagr = indice[:, -1] ** (12 / meses) - 1
     dd = _mdd(I)
@@ -194,7 +215,8 @@ def simular_carteira(
     out = {
         "parametros": {
             "tickers": tickers, "pesos": dict(zip(tickers, np.round(w, 4).tolist())), "valor_inicial": valor_inicial,
-            "aporte_mensal": aporte_mensal, "anos": anos, "meses": meses, "simulacoes": n, "metodo": metodo,
+            "aporte_mensal": aporte_mensal, "anos": anos, "meses": meses, "meses_acumulacao": macc,
+            "anos_saque": anos_saque if msaq else 0, "saque_mensal": saque_mensal if msaq else 0, "simulacoes": n, "metodo": metodo,
             "metodo_descricao": METODOS[metodo], "periodo": periodo, "inflacao": inflacao, "taxa_livre_risco": rf,
             "valores_reais": inflacao > 0,
             "dias_ano": dias_ano, "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"),
@@ -238,6 +260,25 @@ def simular_carteira(
             "yield_on_cost": r2(np.median(renda_12m[:, -1]) * 12 / investido[-1] * 100) if investido[-1] else None,
         },
     }
+
+    if msaq:
+        # Para cada cenário, o maior saque que nunca zera o patrimônio: V_t = A_t - s·W_t > 0 em todo mês de saque
+        # ⇒ s < min_t A_t / W_t. O saque seguro para p% de chance é o percentil (100 - p) desse máximo.
+        A = valor_inicial * I[:, macc + 1:] + aporte_mensal * B[:, macc + 1:]
+        s_max = (A / W[:, macc + 1:]).min(axis=1)
+        inicio = valor_inicial * I[:, macc] + aporte_mensal * B[:, macc]
+        acabou = ~vivo[:, -1]
+        mes_fim = np.where(acabou, vivo[:, macc:].sum(axis=1), -1)  # meses de saque até zerar
+        out["aposentadoria"] = {
+            "saque_mensal": saque_mensal, "anos_saque": anos_saque, "inicio_mes": macc,
+            "prob_sucesso": r2(vivo[:, -1].mean() * 100),
+            "prob_por_ano": [{"ano": a, "prob": r2(vivo[:, min(macc + a * 12, meses)].mean() * 100)} for a in range(1, math.ceil(msaq / 12) + 1)],
+            "patrimonio_inicio": pct(inicio),
+            "anos_ate_acabar_mediana": r2(np.median(mes_fim[acabou]) / 12) if acabou.any() else None,
+            "saque_seguro": {str(p): r2(max(0.0, np.percentile(s_max, 100 - p))) for p in (95, 90, 75, 50)},
+            "regra_4pct": r2(np.median(inicio) * 0.04 / 12),
+            "sacado": pct(sacado),
+        }
 
     if meta:
         # alvo linear em V0 e no aporte para os mesmos sorteios: alvo = V0·A + aporte·Bf → aporte necessário por bisseção

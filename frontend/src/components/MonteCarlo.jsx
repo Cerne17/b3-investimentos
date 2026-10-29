@@ -8,7 +8,7 @@ import { FanChart, Histogram } from './Charts.jsx'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 const cor = (i) => CORES[i] || 'var(--text-muted)'
-const MODOS = [['carteira', 'Carteira'], ['meta', 'Meta financeira'], ['ativo', 'Ativo']]
+const MODOS = [['carteira', 'Carteira'], ['meta', 'Meta financeira'], ['aposentadoria', 'Aposentadoria'], ['ativo', 'Ativo']]
 const METODOS = [['bootstrap', 'Bootstrap do histórico'], ['t', 't de Student (caudas gordas)'], ['normal', 'Normal (GBM)']]
 const HORIZONTES = [[1, '1 mês'], [3, '3 meses'], [6, '6 meses'], [12, '1 ano'], [24, '2 anos'], [60, '5 anos']]
 
@@ -70,7 +70,7 @@ function RendaProventos({ r }) {
       <h2 style={{ marginTop: 0 }}>Renda em proventos · {sacar ? 'sacados todo mês' : 'reinvestidos'}</h2>
       <div className="grid kpis compacto" style={{ marginBottom: 8 }}>
         <Kpi label="Renda mensal no 1º ano (mediana)" value={fmt.brl(rd.primeiro_ano.p50)} hint={`DY histórico da carteira ${fmt.pct(p.dy_hist_anual)} a.a.`} />
-        <Kpi label={`Renda mensal no ano ${Math.ceil(p.anos)} (mediana)`} value={fmt.brl(rd.final.p50)} hint={`p10 ${fmt.brl(rd.final.p10)} · p90 ${fmt.brl(rd.final.p90)}`} />
+        <Kpi label={`Renda mensal no ano ${Math.ceil(p.meses / 12)} (mediana)`} value={fmt.brl(rd.final.p50)} hint={`p10 ${fmt.brl(rd.final.p10)} · p90 ${fmt.brl(rd.final.p90)}`} />
         <Kpi label={sacar ? 'Total sacado em proventos' : 'Total reinvestido em proventos'} value={fmt.brl(rd.recebido.p50)} hint="mediana da soma no horizonte" />
         <Kpi label="Yield on cost no fim" value={rd.yield_on_cost != null ? fmt.pct(rd.yield_on_cost) : '—'} hint="renda anual ÷ total aportado" />
       </div>
@@ -81,6 +81,41 @@ function RendaProventos({ r }) {
         Renda mensal = média dos proventos dos últimos 12 meses (suaviza pagamentos semestrais de ações).
         {sacar ? ' Sacando, o patrimônio cresce só pela variação de preço; as comparações com o aportado e com a renda fixa somam o patrimônio e o que foi sacado.'
           : ' Reinvestindo, o provento compra mais cotas e a renda cresce junto com o patrimônio.'} Sem imposto de renda.
+      </p>
+    </div>
+  )
+}
+
+function Aposentadoria({ r }) {
+  const a = r.aposentadoria, p = r.parametros
+  const real = p.valores_reais
+  const ok = a.prob_sucesso
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h2 style={{ marginTop: 0 }}>Aposentadoria: {fmt.brl(a.saque_mensal)}/mês por {fmt.num(a.anos_saque, 0)} anos{real ? ' (em reais de hoje)' : ''}</h2>
+      <div className="grid kpis compacto" style={{ marginBottom: 8 }}>
+        <Kpi label="Chance de o dinheiro durar" value={fmt.pct(ok, 1)} className={ok >= 90 ? 'pos' : ok < 75 ? 'neg' : ''}
+          hint={a.anos_ate_acabar_mediana != null ? `quando acaba, acaba em ~${fmt.num(a.anos_ate_acabar_mediana, 0)} anos de saque (mediana)` : 'em nenhum cenário o dinheiro acabou'} />
+        <Kpi label={`Patrimônio ao começar a sacar (ano ${fmt.num(a.inicio_mes / 12, 0)})`} value={fmt.brl(a.patrimonio_inicio.p50)}
+          hint={`p10 ${fmt.big(a.patrimonio_inicio.p10)} · p90 ${fmt.big(a.patrimonio_inicio.p90)}`} />
+        <Kpi label="Saque seguro (90% de chance)" value={`${fmt.brl(a.saque_seguro['90'])}/mês`}
+          hint={`95%: ${fmt.brl(a.saque_seguro['95'])} · 75%: ${fmt.brl(a.saque_seguro['75'])} · 50%: ${fmt.brl(a.saque_seguro['50'])}`} />
+        <Kpi label="Regra dos 4% ao ano" value={`${fmt.brl(a.regra_4pct)}/mês`} hint="4% do patrimônio mediano no início ÷ 12" />
+      </div>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>Chance de ainda ter dinheiro, por ano de saque</div>
+      <div className="meta-anos">
+        {a.prob_por_ano.map((x) => (
+          <div key={x.ano} title={`Ano ${x.ano} de saque: ${fmt.pct(x.prob, 1)}`}>
+            <div className="barra"><div style={{ height: `${Math.max(2, x.prob)}%` }} /></div>
+            <span className="num">{fmt.num(x.prob, 0)}%</span>
+            <span className="muted">{x.ano}a</span>
+          </div>
+        ))}
+      </div>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+        Saque seguro = maior saque mensal que não zera o patrimônio em {fmt.num(a.anos_saque, 0)} anos em 90% dos cenários (calculado exatamente
+        sobre os mesmos sorteios). O risco de sequência — uma queda forte logo no começo dos saques — já está nos cenários.
+        {p.ir ? ' O IR sobre os saques não é descontado mês a mês.' : ''}
       </p>
     </div>
   )
@@ -105,7 +140,7 @@ function ResultadoCarteira({ r, meta }) {
   return (
     <>
       <div className="grid kpis compacto">
-        <Kpi label={`Patrimônio mediano em ${p.anos} ano${p.anos > 1 ? 's' : ''}`} value={fmt.brl(f.p50)}
+        <Kpi label={`Patrimônio mediano em ${fmt.num(p.meses / 12, 0)} ano${p.meses > 12 ? 's' : ''}`} value={fmt.brl(f.p50)}
           hint={sacar ? `Aportado: ${fmt.brl(f.investido)} · + ${fmt.brl(r.renda.recebido.p50)} sacados` : `Aportado: ${fmt.brl(f.investido)}`} />
         {f.liquido && <Kpi label="Depois do IR (resgate no fim)" value={fmt.brl(f.liquido.p50)} hint={`IR mediano ${fmt.brl(f.imposto.p50)} · alíquota média ${fmt.pct(p.ir.aliquota_ganho_media, 1)}`} />}
         <Kpi label="Faixa de 90% dos cenários" value={<span style={{ fontSize: 18 }}>{fmt.big(f.p5)} – {fmt.big(f.p95)}</span>} hint="percentis 5 e 95" />
@@ -115,6 +150,8 @@ function ResultadoCarteira({ r, meta }) {
         <Kpi label={`Retorno anual${real ? ' real' : ''} (mediana)`} value={signed(f.cagr.p50)} className={signClass(f.cagr.p50)} hint={`p5 ${signed(f.cagr.p5)} · p95 ${signed(f.cagr.p95)}`} />
         <Kpi label="Maior queda no caminho (mediana)" value={signed(f.max_drawdown.p50)} className="neg" hint={`1 em 20 cenários: ${signed(f.max_drawdown.p95)} ou pior`} />
       </div>
+
+      {r.aposentadoria && <Aposentadoria r={r} />}
 
       {r.meta && (
         <div className="card" style={{ marginBottom: 16 }}>
@@ -248,6 +285,8 @@ export default function MonteCarlo({ preset }) {
   const [metaRenda, setMetaRenda] = useState(3000)
   const [proventos, setProventos] = useState('reinvestir')
   const [ir, setIr] = useState(false)
+  const [anosSaque, setAnosSaque] = useState(30)
+  const [saque, setSaque] = useState(5000)
   const [real, setReal] = useState(true)
   const [inflacao, setInflacao] = useState(4.5)
   const [metodo, setMetodo] = useState('bootstrap')
@@ -291,6 +330,7 @@ export default function MonteCarlo({ preset }) {
           tickers: itens.map((x) => x.ticker), pesos: itens.map((x) => Number(x.peso) || 0), valor_inicial: Number(valor),
           aporte_mensal: Number(aporte), anos: Number(anos), simulacoes: Number(sims), metodo, periodo,
           meta: modo === 'meta' ? Number(metaTipo === 'renda' ? metaRenda : meta) : null, meta_tipo: metaTipo, proventos, ir,
+          ...(modo === 'aposentadoria' ? { anos_saque: Number(anosSaque), saque_mensal: Number(saque) } : {}),
           inflacao: real ? Number(inflacao) / 100 : 0,
         })
         setRes({ modo, r })
@@ -339,7 +379,13 @@ export default function MonteCarlo({ preset }) {
             <div className="filters">
               <label className="field">Valor inicial (R$)<input type="number" min="0" value={valor} onChange={(e) => setValor(e.target.value)} /></label>
               <label className="field">Aporte mensal (R$)<input type="number" min="0" value={aporte} onChange={(e) => setAporte(e.target.value)} /></label>
-              <label className="field">Anos<input type="number" min="1" max="40" value={anos} onChange={(e) => setAnos(e.target.value)} /></label>
+              <label className="field">{modo === 'aposentadoria' ? 'Anos acumulando' : 'Anos'}<input type="number" min="1" max="40" value={anos} onChange={(e) => setAnos(e.target.value)} /></label>
+              {modo === 'aposentadoria' && (
+                <>
+                  <label className="field">Anos sacando<input type="number" min="1" max="50" value={anosSaque} onChange={(e) => setAnosSaque(e.target.value)} /></label>
+                  <label className="field">Saque mensal (R$)<input type="number" min="0" step="500" value={saque} onChange={(e) => setSaque(e.target.value)} /></label>
+                </>
+              )}
               <label className="field" title="Proventos líquidos (FII e dividendos de ações isentos, ETF 15%) e IR sobre o ganho num resgate total no fim (15%; FIIs 20%). Isenções mensais e IR de rebalanceamento não entram.">
                 <span><input type="checkbox" checked={ir} onChange={(e) => setIr(e.target.checked)} /> Descontar IR</span>
                 <span className="muted" style={{ fontSize: 12, marginTop: 6 }}>resgate no fim</span>

@@ -381,6 +381,8 @@ class PedidoMCCarteira(BaseModel):
     meta: float | None = Field(None, gt=0, examples=[100000], description="Patrimônio-alvo ou renda mensal-alvo (ver meta_tipo), em reais de hoje se houver inflação")
     meta_tipo: Literal["patrimonio", "renda"] = Field("patrimonio", description="patrimonio = valor final; renda = renda mensal média dos últimos 12 meses do horizonte")
     proventos: Literal["reinvestir", "sacar"] = Field("reinvestir", description="reinvestir = retorno total; sacar = o patrimônio cresce só pelo preço e os proventos viram renda")
+    anos_saque: float = Field(0, ge=0, le=50, description="Aposentadoria: anos sacando depois dos `anos` acumulando")
+    saque_mensal: float = Field(0, ge=0, examples=[5000], description="Saque mensal na aposentadoria (reais de hoje se houver inflação)")
     ir: bool = Field(False, description="Desconta IR dos proventos (FII isento, dividendos de ações isentos, ETF 15%) e do ganho num resgate no fim (ações/ETF/cripto/RF 15%, FII 20%)")
     inflacao: float = Field(0.0, ge=0, le=0.5, description="Inflação anual para mostrar valores reais (0.045 = 4,5%)")
     taxa_livre_risco: float | None = Field(None, description="Renda fixa de comparação (padrão: B3_TAXA_LIVRE_RISCO)")
