@@ -135,6 +135,7 @@ export default function Carteira({ onSimular, onBroker }) {
   const [dyMin, setDyMin] = useState('')
   const [aporte, setAporte] = useState('')
   const [ir, setIr] = useState(false)
+  const [estimativa, setEstimativa] = useState('robusta')
   const [qtdAtuais, setQtdAtuais] = useState({}) // posições trazidas do Home Broker, para "onde aportar"
   const [filosofia, setFilosofia] = useState('value_conservador')
   const [inds, setInds] = useState(['sharpe', 'sortino', 'calmar', 'renda_risco'])
@@ -164,7 +165,7 @@ export default function Carteira({ onSimular, onBroker }) {
     try {
       setRes(await api.otimizar({
         tickers, valor: Number(valor), peso_min: pmin / 100, peso_max: pmax / 100, periodo,
-        taxa_livre_risco: rf / 100, indicadores: inds, filosofia: filosofia || null, dy_min: dyMin === '' ? null : Number(dyMin), ir,
+        taxa_livre_risco: rf / 100, indicadores: inds, filosofia: filosofia || null, dy_min: dyMin === '' ? null : Number(dyMin), ir, estimativa,
       }))
     } catch (e) { setErro(e.message); setRes(null) } finally { setRodando(false) }
   }
@@ -225,6 +226,14 @@ export default function Carteira({ onSimular, onBroker }) {
             <span><input type="checkbox" checked={ir} onChange={(e) => setIr(e.target.checked)} /> Líquido de IR</span>
             <span className="muted" style={{ fontSize: 12, marginTop: 6 }}>ganho 15% · FII 20%</span>
           </label>
+          <label className="field" title="Robusta: covariância de Ledoit-Wolf e retornos encolhidos (James-Stein) — menos refém do passado recente. Reamostrada: média dos pesos ótimos em 30 reamostragens do histórico (Michaud) — mais diversificada. Histórica: média e covariância como estão.">
+            Estimativa
+            <select value={estimativa} onChange={(e) => setEstimativa(e.target.value)}>
+              <option value="robusta">Robusta (recomendada)</option>
+              <option value="reamostrada">Reamostrada</option>
+              <option value="historica">Histórica pura</option>
+            </select>
+          </label>
           <label className="field">Taxa livre de risco (% a.a.)<input type="number" value={rf} step="0.25" onChange={(e) => setRf(Number(e.target.value))} /></label>
           <label className="field">Filosofia / perfil
             <select value={filosofia} onChange={(e) => escolherFilosofia(e.target.value)}>
@@ -253,7 +262,10 @@ export default function Carteira({ onSimular, onBroker }) {
         <>
           <p className="muted section" style={{ fontSize: 13 }}>
             Janela comum: {fmt.date(res.parametros.inicio)} a {fmt.date(res.parametros.fim)} ({res.parametros.pregoes} pregões) ·
-            taxa livre de risco {fmt.pct(res.parametros.taxa_livre_risco * 100)} a.a. · resultados históricos, não garantem retorno futuro.
+            taxa livre de risco {fmt.pct(res.parametros.taxa_livre_risco * 100)} a.a.{res.parametros.ir ? ' (líquida de IR)' : ''} ·
+            estimativa: {res.parametros.estimativa?.descricao?.toLowerCase()}
+            {res.parametros.estimativa?.encolhimento_retorno != null && ` (encolhimento dos retornos ${fmt.pct(res.parametros.estimativa.encolhimento_retorno * 100, 0)}, da covariância ${fmt.pct(res.parametros.estimativa.encolhimento_cov * 100, 0)})`}
+            · métricas realizadas no histórico, não garantem retorno futuro.
           </p>
 
           <div className="card section">

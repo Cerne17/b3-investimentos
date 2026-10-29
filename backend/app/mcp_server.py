@@ -184,14 +184,16 @@ def otimizar_carteira(
     periodo: Literal["1y", "2y", "5y", "10y"] = "2y",
     dy_min: float | None = None,
     ir: bool = False,
+    estimativa: Literal["historica", "robusta", "reamostrada"] = "historica",
 ) -> dict:
     """Otimização de carteira (Markowitz e variações) com alocação em cotas inteiras ao preço atual.
     filosofia: value_conservador | renda | defensivo | equilibrado | crescimento (define os indicadores).
     indicadores: sharpe, sortino, calmar, renda_risco, omega, min_vol, min_cvar, min_drawdown, risk_parity, max_dy, max_retorno.
-    Renda fixa: CDI, CDI-110, SELIC, IPCA+6, PRE-13. ir=True otimiza com retornos líquidos de imposto de renda.
+    Renda fixa: CDI, CDI-110, SELIC, IPCA+6, PRE-13. estimativa: historica | robusta (Ledoit-Wolf + James-Stein,
+    menos sensível ao passado) | reamostrada (Michaud, pesos mais diversificados). ir=True otimiza com retornos líquidos de imposto de renda.
     Pesos em fração (0.35 = 35%). dy_min: dividend yield mínimo da carteira em % a.a. (ex.: 8).
     Cada carteira traz a renda mensal estimada da alocação. Sempre inclui a carteira de pesos iguais como referência."""
-    r = portfolio.otimizar(tickers, valor, peso_min, peso_max, indicadores, filosofia, periodo, dy_min=dy_min, ir=ir)
+    r = portfolio.otimizar(tickers, valor, peso_min, peso_max, indicadores, filosofia, periodo, dy_min=dy_min, ir=ir, estimativa=estimativa)
     r.pop("fronteira", None)
     return r
 

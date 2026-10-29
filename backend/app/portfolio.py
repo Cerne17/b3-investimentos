@@ -199,11 +199,11 @@ def _objetivo(nome: str, R, mu, cov, dy, rf, DIAS: int = DIAS):
     return fns[nome]
 
 
-def _otimizar(fn, n, lo, hi, seed=0, extra=()):
+def _otimizar(fn, n, lo, hi, seed=0, extra=(), partidas=16):
     rng = np.random.default_rng(seed)
     cons = [{"type": "eq", "fun": lambda w: w.sum() - 1}, *extra]
     bounds = [(lo, hi)] * n
-    inicios = [np.full(n, 1 / n)] + [rng.dirichlet(np.ones(n)) for _ in range(15)]
+    inicios = [np.full(n, 1 / n)] + [rng.dirichlet(np.ones(n)) for _ in range(partidas - 1)]
     melhor = None
     for w0 in inicios:
         w0 = np.clip(w0, lo, hi)
@@ -218,6 +218,60 @@ def _otimizar(fn, n, lo, hi, seed=0, extra=()):
     w = melhor[1]
     w[w < 1e-4] = 0
     return w / w.sum()
+
+
+# ---------- estimativas robustas ----------
+
+ESTIMATIVAS = {
+    "historica": "Média e covariância históricas, como estão",
+    "robusta": "Covariância com encolhimento de Ledoit-Wolf e retornos encolhidos (James-Stein) para um alvo neutro em que todo ativo tem o mesmo Sharpe",
+    "reamostrada": "Fronteira reamostrada (Michaud): otimiza em 30 reamostragens do histórico e tira a média dos pesos",
+}
+
+
+def ledoit_wolf(R: np.ndarray) -> tuple[np.ndarray, float]:
+    """Covariância encolhida para a identidade escalada (Ledoit & Wolf, 2004). Devolve a matriz e a intensidade."""
+    T, n = R.shape
+    X = R - R.mean(axis=0)
+    S = X.T @ X / T
+    X2 = X ** 2
+    traco = X2.sum(axis=0) / T
+    m = traco.sum() / n
+    delta_ = float(np.sum(S ** 2))
+    beta = (float(np.sum(X2.T @ X2)) / T - delta_) / (n * T)
+    delta = (delta_ - 2 * m * traco.sum() + n * m ** 2) / n
+    k = 0.0 if delta <= 0 else min(max(beta, 0.0), delta) / delta
+    return (1 - k) * S + k * m * np.eye(n), float(k)
+
+
+def james_stein(R: np.ndarray, cov: np.ndarray, rf_d: float, dias: int, sharpe: float = 0.3) -> tuple[np.ndarray, float]:
+    """Retornos médios diários encolhidos (James-Stein) para um alvo neutro: todos os ativos com o mesmo Sharpe
+    (taxa livre de risco + 0,3 x volatilidade ao ano). Encolher para a média simples deixaria todos com o mesmo
+    retorno e o Sharpe máximo degeneraria; com o alvo neutro, o que sobra de diferença vem do histórico na medida
+    em que ele é estatisticamente distinguível de ruído."""
+    T, n = R.shape
+    m = R.mean(axis=0)
+    alvo = rf_d + sharpe * np.sqrt(np.diag(cov)) / math.sqrt(dias)
+    dif = m - alvo
+    try:
+        q = float(dif @ np.linalg.solve(cov, dif))
+    except np.linalg.LinAlgError:
+        q = float(dif @ np.linalg.pinv(cov) @ dif)
+    c = 1.0 if q <= 0 else min(1.0, max(0, n - 2) / (T * q))
+    return (1 - c) * m + c * alvo, float(c)
+
+
+def _reamostras(R: np.ndarray, k: int, seed: int = 7) -> list[np.ndarray]:
+    """Reamostragens do histórico em blocos de 20 dias (mantém volatilidade em grupos e correlação)."""
+    rng = np.random.default_rng(seed)
+    T = len(R)
+    blocos = math.ceil(T / 20)
+    out = []
+    for _ in range(k):
+        ini = rng.integers(0, T, size=blocos)
+        idx = ((ini[:, None] + np.arange(20)[None, :]) % T).ravel()[:T]
+        out.append(R[idx])
+    return out
 
 
 def fronteira(mu, cov, lo, hi, pontos=30, extra=()):
@@ -306,10 +360,15 @@ def otimizar(
     taxa_livre_risco: float | None = None,
     dy_min: float | None = None,
     ir: bool = False,
+    estimativa: str = "historica",
 ) -> dict:
     """dy_min: dividend yield mínimo da carteira em % a.a. (restrição em todas as carteiras otimizadas).
     ir: otimiza com retornos líquidos de IR — ganho de preço x (1 - alíquota de ganho da classe), proventos x
-    (1 - alíquota de proventos) e taxa livre de risco x 0,85 (renda fixa de longo prazo)."""
+    (1 - alíquota de proventos) e taxa livre de risco x 0,85 (renda fixa de longo prazo).
+    estimativa: historica | robusta (Ledoit-Wolf + James-Stein) | reamostrada (Michaud) — ver ESTIMATIVAS.
+    As métricas mostradas são sempre as realizadas no histórico."""
+    if estimativa not in ESTIMATIVAS:
+        raise ValueError(f"estimativa desconhecida: {estimativa} (use {', '.join(ESTIMATIVAS)})")
     tickers = list(dict.fromkeys(t.strip().upper().replace(".SA", "") for t in tickers if t.strip()))
     n = len(tickers)
     if n < 2:
@@ -339,6 +398,14 @@ def otimizar(
     mu = R.mean(axis=0) * dias
     cov = np.cov(R, rowvar=False) * dias
     dy = np.array([s[2] for s in series])
+    # o que entra na otimização (as métricas exibidas continuam sendo as realizadas, com R)
+    R_opt, mu_opt, cov_opt, info_est = R, mu, cov, {"tipo": estimativa, "descricao": ESTIMATIVAS[estimativa]}
+    if estimativa == "robusta":
+        cov_d, k = ledoit_wolf(R)
+        m_d, c = james_stein(R, cov_d, (1 + rf) ** (1 / dias) - 1, dias)
+        cov_opt, mu_opt = cov_d * dias, m_d * dias
+        R_opt = R - R.mean(axis=0) + m_d  # objetivos que usam a série (Sortino, Calmar...) também com a média encolhida
+        info_est.update(encolhimento_cov=round(k, 3), encolhimento_retorno=round(c, 3))
     extra = ()
     if dy_min:
         dy_possivel = float(_otimizar(lambda w: -(w @ dy), n, peso_min, peso_max) @ dy)
@@ -373,8 +440,16 @@ def otimizar(
         }
 
     carteiras = []
+    amostras = _reamostras(R, 30) if estimativa == "reamostrada" else None
     for i, ind in enumerate(indicadores):
-        w = _otimizar(_objetivo(ind, R, mu, cov, dy, rf, dias), n, peso_min, peso_max, seed=i, extra=extra)
+        if amostras is not None:
+            pesos = [_otimizar(_objetivo(ind, Rb, Rb.mean(axis=0) * dias, np.cov(Rb, rowvar=False) * dias, dy, rf, dias),
+                               n, peso_min, peso_max, seed=i, extra=extra, partidas=2) for Rb in amostras]
+            w = np.mean(pesos, axis=0)
+            w[w < 1e-3] = 0
+            w = w / w.sum()
+        else:
+            w = _otimizar(_objetivo(ind, R_opt, mu_opt, cov_opt, dy, rf, dias), n, peso_min, peso_max, seed=i, extra=extra)
         carteiras.append(montar(INDICADORES[ind]["nome"], ind, w, INDICADORES[ind]["descricao"]))
     eq = np.full(n, 1 / n)
     iguais = montar("Pesos iguais", "iguais", eq, "Referência: mesmo peso em cada ativo.")
@@ -402,13 +477,13 @@ def otimizar(
 
     return {
         "parametros": {"tickers": tickers, "valor": valor, "peso_min": peso_min, "peso_max": peso_max, "periodo": periodo,
-                       "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores, "dy_min": dy_min, "ir": tabela_ir,
+                       "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores, "dy_min": dy_min, "ir": tabela_ir, "estimativa": info_est,
                        "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"), "pregoes": len(R_df), "dias_ano": dias},
         "ativos": ativos,
         "correlacao": {"tickers": tickers, "matriz": np.corrcoef(R, rowvar=False).round(3).tolist()},
         "carteiras": carteiras,
         "pesos_iguais": iguais,
-        "fronteira": fronteira(mu, cov, peso_min, peso_max, extra=extra),
+        "fronteira": fronteira(mu_opt, cov_opt, peso_min, peso_max, extra=extra),
     }
 
 
