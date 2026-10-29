@@ -1533,6 +1533,7 @@
                     "An\u00e1lises"
                 ],
                 "summary": "Busca ETFs e FIIs (autocomplete)",
+                "description": "A\u00e7\u00f5es, ETFs, FIIs e criptos da base; termos como \"cdi\", \"ipca\", \"tesouro\" sugerem t\u00edtulos de renda fixa.",
                 "operationId": "buscar_api_busca_get",
                 "parameters": [
                     {
@@ -1595,6 +1596,126 @@
                         "content": {
                             "application/json": {
                                 "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/carteira/aporte": {
+            "post": {
+                "tags": [
+                    "Carteira"
+                ],
+                "summary": "Onde aportar: compras que aproximam a carteira do alvo",
+                "description": "S\u00f3 compras, sem vender: com o aporte, quantas cotas comprar de cada ativo para chegar o mais perto poss\u00edvel\ndos pesos-alvo (ex.: os de uma carteira otimizada), a partir das quantidades atuais e do pre\u00e7o de agora.",
+                "operationId": "onde_aportar_api_carteira_aporte_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PedidoAporte"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/carteira/desempenho": {
+            "post": {
+                "tags": [
+                    "Carteira"
+                ],
+                "summary": "Desempenho real a partir das opera\u00e7\u00f5es",
+                "description": "Valor da carteira dia a dia, total investido, proventos recebidos (na data ex, pela posi\u00e7\u00e3o da v\u00e9spera),\nrentabilidade ponderada no tempo (TWR), taxa interna de retorno (TIR) e compara\u00e7\u00e3o com IBOV, CDI, IFIX e S&P 500 \u2014\nno mesmo per\u00edodo e \"se os mesmos aportes tivessem ido para o \u00edndice\". Opera\u00e7\u00f5es antes de desdobramentos s\u00e3o\nconvertidas automaticamente para a base atual.",
+                "operationId": "desempenho_carteira_api_carteira_desempenho_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PedidoDesempenho"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/carteira/importar-b3": {
+            "post": {
+                "tags": [
+                    "Carteira"
+                ],
+                "summary": "L\u00ea opera\u00e7\u00f5es do extrato da B3",
+                "description": "Extrato de Negocia\u00e7\u00e3o ou de Movimenta\u00e7\u00e3o da \u00c1rea do Investidor (investidor.b3.com.br) \u2192 lista de opera\u00e7\u00f5es\n(compras, vendas e bonifica\u00e7\u00f5es). Proventos e desdobramentos n\u00e3o s\u00e3o importados: o desempenho os recalcula.",
+                "operationId": "importar_extrato_b3_api_carteira_importar_b3_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ArquivoB3"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
                             }
                         }
                     }
@@ -1782,6 +1903,63 @@
                                 "HGLG11,BOVA11,IVVB11"
                             ],
                             "title": "Tickers"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tempo-real/preco/{ticker}": {
+            "get": {
+                "tags": [
+                    "Tempo real"
+                ],
+                "summary": "Pre\u00e7o de fechamento numa data",
+                "description": "Fechamento do dia (ou do \u00faltimo preg\u00e3o antes dele) como negociado na \u00e9poca, sem ajuste de desdobramentos\nposteriores. Para renda fixa (CDI, IPCA+6...), o valor do \u00edndice \u2014 \u00fatil para converter um valor aplicado em cotas.",
+                "operationId": "preco_na_data_api_tempo_real_preco__ticker__get",
+                "parameters": [
+                    {
+                        "name": "ticker",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "examples": [
+                                "PETR4"
+                            ],
+                            "title": "Ticker"
+                        }
+                    },
+                    {
+                        "name": "data",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "examples": [
+                                "2025-03-14"
+                            ],
+                            "title": "Data"
                         }
                     }
                 ],
@@ -2072,6 +2250,26 @@
     },
     "components": {
         "schemas": {
+            "ArquivoB3": {
+                "properties": {
+                    "arquivo_base64": {
+                        "type": "string",
+                        "title": "Arquivo Base64",
+                        "description": "Conte\u00fado do .xlsx ou .csv exportado da \u00c1rea do Investidor, em base64"
+                    },
+                    "nome": {
+                        "type": "string",
+                        "title": "Nome",
+                        "description": "Nome do arquivo (a extens\u00e3o define o formato)",
+                        "default": "extrato.xlsx"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "arquivo_base64"
+                ],
+                "title": "ArquivoB3"
+            },
             "ConsultaSQL": {
                 "properties": {
                     "query": {
@@ -2106,6 +2304,126 @@
                 },
                 "type": "object",
                 "title": "HTTPValidationError"
+            },
+            "Operacao": {
+                "properties": {
+                    "data": {
+                        "type": "string",
+                        "format": "date",
+                        "title": "Data",
+                        "examples": [
+                            "2025-03-15"
+                        ]
+                    },
+                    "ticker": {
+                        "type": "string",
+                        "title": "Ticker",
+                        "examples": [
+                            "PETR4"
+                        ]
+                    },
+                    "tipo": {
+                        "type": "string",
+                        "enum": [
+                            "compra",
+                            "venda"
+                        ],
+                        "title": "Tipo",
+                        "default": "compra"
+                    },
+                    "quantidade": {
+                        "type": "number",
+                        "exclusiveMinimum": 0.0,
+                        "title": "Quantidade",
+                        "description": "Cotas (cripto e renda fixa aceitam fra\u00e7\u00f5es)"
+                    },
+                    "preco": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "title": "Preco",
+                        "description": "Pre\u00e7o por cota na opera\u00e7\u00e3o, como negociado (antes de desdobramentos)",
+                        "default": 0
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "data",
+                    "ticker",
+                    "quantidade"
+                ],
+                "title": "Operacao"
+            },
+            "PedidoAporte": {
+                "properties": {
+                    "tickers": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "minItems": 1,
+                        "title": "Tickers",
+                        "examples": [
+                            [
+                                "MXRF11",
+                                "BOVA11",
+                                "CDI"
+                            ]
+                        ]
+                    },
+                    "pesos": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "title": "Pesos",
+                        "description": "Pesos-alvo (normalizados)",
+                        "examples": [
+                            [
+                                0.3,
+                                0.3,
+                                0.4
+                            ]
+                        ]
+                    },
+                    "quantidades": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Quantidades",
+                        "description": "Cotas que voc\u00ea j\u00e1 tem (vazio = carteira nova)",
+                        "examples": [
+                            [
+                                100,
+                                2,
+                                500
+                            ]
+                        ]
+                    },
+                    "aporte": {
+                        "type": "number",
+                        "exclusiveMinimum": 0.0,
+                        "title": "Aporte",
+                        "description": "Dinheiro novo deste m\u00eas (R$)",
+                        "examples": [
+                            1000
+                        ]
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "tickers",
+                    "pesos",
+                    "aporte"
+                ],
+                "title": "PedidoAporte"
             },
             "PedidoCarteira": {
                 "properties": {
@@ -2214,6 +2532,23 @@
                         "title": "Taxa Livre Risco",
                         "description": "Taxa livre de risco anual (0.14 = 14%). Padr\u00e3o: B3_TAXA_LIVRE_RISCO"
                     },
+                    "estimativa": {
+                        "type": "string",
+                        "enum": [
+                            "historica",
+                            "robusta",
+                            "reamostrada"
+                        ],
+                        "title": "Estimativa",
+                        "description": "historica; robusta = Ledoit-Wolf + James-Stein (alvo de Sharpe igual); reamostrada = m\u00e9dia dos pesos em 30 reamostragens (Michaud)",
+                        "default": "historica"
+                    },
+                    "ir": {
+                        "type": "boolean",
+                        "title": "Ir",
+                        "description": "Otimiza com retornos l\u00edquidos de IR: ganho de capital 15% (FII 20%), proventos de ETF 15%, renda fixa livre de risco x 0,85",
+                        "default": false
+                    },
                     "dy_min": {
                         "anyOf": [
                             {
@@ -2237,6 +2572,45 @@
                     "tickers"
                 ],
                 "title": "PedidoCarteira"
+            },
+            "PedidoDesempenho": {
+                "properties": {
+                    "transacoes": {
+                        "items": {
+                            "$ref": "#/components/schemas/Operacao"
+                        },
+                        "type": "array",
+                        "minItems": 1,
+                        "title": "Transacoes"
+                    },
+                    "benchmarks": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Benchmarks",
+                        "description": "IBOV, CDI, IFIX, S&P 500 ou qualquer ticker; vazio = todos os padr\u00f5es",
+                        "examples": [
+                            [
+                                "IBOV",
+                                "CDI",
+                                "IFIX"
+                            ]
+                        ]
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "transacoes"
+                ],
+                "title": "PedidoDesempenho"
             },
             "PedidoMCAtivo": {
                 "properties": {
@@ -2445,6 +2819,43 @@
                         "title": "Proventos",
                         "description": "reinvestir = retorno total; sacar = o patrim\u00f4nio cresce s\u00f3 pelo pre\u00e7o e os proventos viram renda",
                         "default": "reinvestir"
+                    },
+                    "benchmark": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Benchmark",
+                        "description": "\u00cdndice simulado com os mesmos sorteios e aportes: IBOV, IFIX, S&P 500, CDI ou um ticker; null desliga",
+                        "default": "IBOV"
+                    },
+                    "anos_saque": {
+                        "type": "number",
+                        "maximum": 50.0,
+                        "minimum": 0.0,
+                        "title": "Anos Saque",
+                        "description": "Aposentadoria: anos sacando depois dos `anos` acumulando",
+                        "default": 0
+                    },
+                    "saque_mensal": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "title": "Saque Mensal",
+                        "description": "Saque mensal na aposentadoria (reais de hoje se houver infla\u00e7\u00e3o)",
+                        "default": 0,
+                        "examples": [
+                            5000
+                        ]
+                    },
+                    "ir": {
+                        "type": "boolean",
+                        "title": "Ir",
+                        "description": "Desconta IR dos proventos (FII isento, dividendos de a\u00e7\u00f5es isentos, ETF 15%) e do ganho num resgate no fim (a\u00e7\u00f5es/ETF/cripto/RF 15%, FII 20%)",
+                        "default": false
                     },
                     "inflacao": {
                         "type": "number",

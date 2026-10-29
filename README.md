@@ -1,7 +1,8 @@
 # B3 Fundos — Ações, ETFs, FIIs & Cripto
 
 Base SQLite + API REST (FastAPI/Swagger) + servidor MCP + dashboard React para ações, ETFs e FIIs listados na B3 e as
-maiores criptomoedas, com otimização de carteira, simulações de Monte Carlo e um home broker de acompanhamento.
+maiores criptomoedas, mais renda fixa (CDI, Selic, IPCA+, prefixado), com otimização de carteira, simulações de Monte
+Carlo e um home broker de acompanhamento com desempenho real.
 
 ```
 data/            CSVs da B3 (etfsListados.csv, fundosListados.csv) e o banco b3.db
@@ -10,8 +11,12 @@ backend/app/
   yahoo.py       coleta Yahoo Finance (métricas + tempo real, ajuste de desdobramentos)
   cvm.py         informe mensal de FIIs da CVM (VP/cota, PL, cotistas, segmento, carteira)
   cripto.py      maiores criptos (CoinGecko) + histórico do Yahoo convertido para reais
-  portfolio.py   otimização de carteira (Markowitz e variações)
-  montecarlo.py  simulações de patrimônio, meta e cone de preço
+  rendafixa.py   renda fixa como ativo: índices do CDI, Selic, IPCA+ e prefixado (séries do Banco Central)
+  portfolio.py   otimização de carteira (Markowitz e variações, estimativas robustas, onde aportar)
+  montecarlo.py  simulações de patrimônio, meta, renda, aposentadoria e cone de preço
+  impostos.py    IR aproximado por classe de ativo
+  desempenho.py  desempenho real a partir das operações (TWR, TIR, proventos, índices)
+  importar_b3.py extratos da Área do Investidor da B3 → operações
   ingest.py      carga dos CSVs + coleta → SQLite
   repository.py  consultas (usadas pela API e pelo MCP)
   main.py        API REST (Swagger em /docs) — também serve o dashboard
@@ -117,6 +122,15 @@ stablecoin fora da paridade, giro baixo, muita emissão futura (valor de mercado
 Na carteira, cripto entra com quantidade fracionária e, misturada a ativos da bolsa, o retorno é medido nos pregões
 (o fim de semana da cripto entra no retorno de segunda).
 
+## Renda fixa
+
+Tickers sintéticos aceitos em todo o app (Markowitz, Monte Carlo, Home Broker, Tempo real): `CDI` (100% do CDI),
+`CDI-110` (110% do CDI), `SELIC`, `IPCA+6` (IPCA + 6% a.a., aceita `IPCA+6.5`) e `PRE-13` (prefixado 13% a.a.). O
+"preço" é um índice acumulado desde 03/01/2005 (= 1,0), montado com as séries 12 (CDI), 11 (Selic) e 433 (IPCA) do SGS
+do Banco Central; aplicar R$ 1.000 num dia equivale a comprar 1.000 ÷ índice "cotas". Títulos levados ao vencimento:
+sem marcação a mercado. As séries ficam na base (`python -m app.ingest --only rendafixa`) e são completadas em tempo
+real pelo endpoint "últimos N" do BCB.
+
 ## Monte Carlo
 
 ```bash
@@ -142,6 +156,17 @@ cada mês. Com `meta`, a resposta traz a chance de atingi-la (no fim e ano a ano
 mensal necessário para 50/75/90% de chance (o valor final é linear no aporte para os mesmos sorteios, então sai por
 bisseção sem simular de novo).
 
+Aposentadoria: `anos_saque` e `saque_mensal` acrescentam uma fase de saques depois dos `anos` acumulando. A resposta
+traz `aposentadoria` com a chance de o dinheiro durar (no fim e ano a ano), o patrimônio no início dos saques, o saque
+seguro para 95/90/75/50% de chance — exato, já que V = V0·I + aporte·B − saque·W e o saque máximo de cada cenário é
+min(A/W) — e a regra dos 4%.
+
+`benchmark` (`IBOV` padrão, `IFIX`, `S&P 500`, `CDI` ou um ticker) é simulado com os mesmos sorteios e aportes; a
+resposta traz a mediana mês a mês e a chance de a carteira terminar melhor que o índice no mesmo cenário.
+
+`ir: true` desconta o IR dos proventos (FII e dividendos de ações isentos, ETF 15%) e o IR sobre o ganho nominal num
+resgate total no fim (15%; FIIs 20%) — `final.liquido`. Isenções mensais de vendas e IR de rebalanceamento não entram.
+
 Proventos (`proventos`): `reinvestir` (retorno total) ou `sacar` — o patrimônio cresce só pelo preço e o provento vira
 renda. Nos dois casos a resposta traz `renda`: renda mensal (média de 12 meses) no 1º ano e no fim, leque mês a mês,
 total recebido e yield on cost. No bootstrap a renda vem dos proventos dos mesmos dias sorteados; nos métodos
@@ -150,7 +175,15 @@ horizonte (o aporte necessário também sai por bisseção). Sem imposto de rend
 
 ## Home Broker
 
-Aba de acompanhamento (sem ordens): várias carteiras com quantidade e preço médio, cotações a cada 30 s, variação do
+Aba de acompanhamento (sem ordens). Cada carteira guarda **operações** (compra/venda com data); as posições saem do custo
+médio. Com elas, `POST /api/carteira/desempenho` calcula o desempenho real: valor dia a dia, proventos recebidos (na data
+ex, pela posição da véspera), rentabilidade ponderada no tempo (TWR), taxa interna de retorno (TIR) e a comparação com
+IBOV, CDI, IFIX (XFIX11) e S&P 500 (IVVB11) — no período e "se os mesmos aportes tivessem ido para o índice". Operações
+anteriores a desdobramentos são convertidas para a base atual. O extrato de Negociação ou de Movimentação da Área do
+Investidor da B3 (.xlsx/.csv) vira uma carteira com `POST /api/carteira/importar-b3`, e
+`GET /api/tempo-real/preco/{ticker}?data=` dá o preço como negociado numa data.
+
+Também: cotações a cada 30 s, variação do
 dia, resultado por ativo, renda passiva estimada pelos proventos de 12 meses, alocação por ativo e por classe e o valor
 da carteira atual ao longo do dia/semana/mês/ano. O painel de proventos mostra o recebido por mês nos últimos 12 meses
 (com as quantidades de hoje), pagamentos e yield on cost por ativo e o progresso até uma meta de renda mensal
@@ -169,6 +202,13 @@ curl -X POST localhost:8000/api/carteira/otimizar -H 'content-type: application/
   "peso_min": 0, "peso_max": 0.35, "filosofia": "value_conservador"
 }'
 ```
+
+`estimativa`: `historica`, `robusta` (covariância de Ledoit-Wolf e retornos encolhidos por James-Stein para um alvo em
+que todo ativo tem o mesmo Sharpe — padrão no dashboard) ou `reamostrada` (média dos pesos em 30 reamostragens,
+Michaud). `ir: true` otimiza com retornos líquidos de IR por classe.
+
+Onde aportar: `POST /api/carteira/aporte` (`tickers`, `pesos`-alvo, `quantidades` atuais, `aporte`) diz quantas cotas
+comprar de cada ativo, sem vender nada, para chegar o mais perto possível do alvo.
 
 `dy_min` (% a.a.) impõe um dividend yield mínimo a todas as carteiras otimizadas (e à fronteira); cada carteira traz a
 renda mensal estimada da alocação (`alocacao.renda_mensal`).
