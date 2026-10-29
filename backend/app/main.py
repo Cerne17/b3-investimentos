@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import agenda, desempenho, importar_b3, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
+from . import agenda, comparador, desempenho, importar_b3, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
 from .db import ROOT, SOMENTE_LEITURA, init_db
 
 TAGS = [
@@ -140,6 +140,14 @@ def listar_fiis(
     (ex.: `min_num_proventos_12m=12`, `max_taxa_adm_anual=1`, `min_pct_imoveis=80`)."""
     return _listar("fii", request, busca=busca, categoria=categoria, segmento=segmento,
                    somente_com_dados=somente_com_dados, ordenar=ordenar, ordem=ordem, limite=limite, offset=offset)
+
+
+@app.get("/api/fiis/comparar", tags=["FIIs"], summary="Compara FIIs: indicadores e histórico")
+def comparar_fiis(codigos: str = Query(..., examples=["HGLG11,KNRI11,XPLG11"], description="Até 6, separados por vírgula")):
+    """Indicadores atuais lado a lado (P/VP, DY, vacância e inadimplência do último informe trimestral, cotistas, PL,
+    taxa de administração, alavancagem, composição) e séries: P/VP mensal (preço ÷ VP/cota da CVM), DY 12m, VP/cota,
+    cotistas e vacância/inadimplência trimestrais."""
+    return comparador.comparar([c for c in codigos.split(",") if c.strip()])
 
 
 @app.get("/api/fiis/{codigo}", tags=["FIIs"], summary="Detalhe de um FII")

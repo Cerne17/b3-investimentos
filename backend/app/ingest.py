@@ -8,6 +8,7 @@ Uso:
     python -m app.ingest --only acao      # só ações (lista do Formulário Cadastral da CVM)
     python -m app.ingest --pendentes      # só ativos que ainda não têm dados do Yahoo
     python -m app.ingest --only rendafixa # séries do Banco Central (CDI, Selic, IPCA) e preços do Tesouro Direto
+    python -m app.ingest --only fiihist   # só o histórico de FIIs da CVM (comparador)
     python -m app.ingest --only cripto    # só criptomoedas (CoinGecko + Yahoo), --limit = quantas moedas
 """
 import argparse
@@ -203,9 +204,22 @@ def aplicar_cvm() -> int:
     return n
 
 
+def salvar_historico_fii() -> None:
+    """Histórico mensal (VP/cota, DY, cotistas...) e trimestral (vacância, inadimplência) dos FIIs, para o comparador."""
+    print("[cvm] baixando histórico de FIIs...", flush=True)
+    mensal, trimestral = cvm.historico()
+    init_db()
+    with connect() as conn:
+        conn.execute("DELETE FROM fii_mensal")
+        conn.execute("DELETE FROM fii_trimestral")
+        conn.executemany("INSERT OR REPLACE INTO fii_mensal VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", mensal)
+        conn.executemany("INSERT OR REPLACE INTO fii_trimestral VALUES (?, ?, ?, ?, ?)", trimestral)
+    print(f"[cvm] histórico: {len(mensal)} meses e {len(trimestral)} trimestres de FIIs.", flush=True)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--only", choices=["etf", "fii", "acao", "cripto", "rendafixa"])
+    p.add_argument("--only", choices=["etf", "fii", "acao", "cripto", "rendafixa", "fiihist"])
     p.add_argument("--skip-yahoo", action="store_true")
     p.add_argument("--skip-cvm", action="store_true")
     p.add_argument("--pendentes", action="store_true")
@@ -213,6 +227,9 @@ def main() -> None:
     p.add_argument("--limit", type=int)
     a = p.parse_args()
 
+    if a.only == "fiihist":
+        salvar_historico_fii()
+        return
     if a.only == "rendafixa":
         from . import rendafixa
         init_db()
@@ -228,6 +245,7 @@ def main() -> None:
         carregar_acoes()
     if not a.skip_cvm and a.only in (None, "fii"):
         aplicar_cvm()
+        salvar_historico_fii()
     if a.skip_yahoo:
         return
     if a.only in (None, "etf"):

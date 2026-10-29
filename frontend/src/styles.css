@@ -342,3 +342,32 @@ a:hover { color: var(--accent-hover); }
   .cartoes td:last-child:not([data-label]) { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; gap: 6px; }
   .cartoes .hb-edit { width: 100%; }
 }
+
+/* relatório da carteira (Relatorio.jsx): folha branca em tela cheia; na impressão, só ela aparece */
+.relatorio {
+  position: fixed; inset: 0; z-index: 1000; overflow: auto; background: #fff; color: #111; padding: 32px max(16px, calc(50vw - 420px));
+  font-size: 13px;
+}
+.relatorio h1 { font-size: 26px; color: #111; }
+.relatorio h2 { font-size: 15px; margin: 22px 0 8px; color: #111; }
+.relatorio .muted { color: #666; }
+.relatorio table { width: 100%; border-collapse: collapse; }
+.relatorio th, .relatorio td { border-bottom: 1px solid #ddd; padding: 4px 6px; color: #111; background: #fff; }
+.relatorio th { font-size: 11px; text-transform: uppercase; color: #555; }
+.relatorio .pos { color: #13804b; } .relatorio .neg { color: #b42318; }
+.relatorio-acoes { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px; }
+.relatorio-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-top: 16px; }
+.relatorio-kpis div { border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.relatorio-kpis span { font-size: 11px; color: #666; text-transform: uppercase; }
+.relatorio-kpis b { font-size: 15px; }
+.relatorio-duas { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.relatorio footer { margin-top: 24px; font-size: 11px; }
+.relatorio .chart svg text { fill: #555; }
+@media (max-width: 640px) { .relatorio-duas { grid-template-columns: 1fr; } }
+@media print {
+  body.imprimindo > #root { display: none !important; }
+  body.imprimindo .relatorio { position: static; padding: 0; overflow: visible; }
+  .relatorio-acoes { display: none !important; }
+  .relatorio section { break-inside: avoid; }
+  @page { margin: 14mm; }
+}

@@ -200,6 +200,15 @@ CREATE TABLE IF NOT EXISTS tesouro (  -- preço diário de cada título (Tesouro
     taxa REAL,                      -- taxa de venda (% a.a.)
     PRIMARY KEY (id, dia)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS fii_mensal (  -- informe mensal da CVM (comparador de FIIs)
+    codigo TEXT NOT NULL, mes TEXT NOT NULL, vp_cota REAL, pl REAL, cotistas INTEGER,
+    dy_mes REAL, rent_efetiva REAL, rent_patrimonial REAL, taxa_adm REAL,   -- % no mês
+    PRIMARY KEY (codigo, mes)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS fii_trimestral (  -- informe trimestral: imóveis
+    codigo TEXT NOT NULL, data TEXT NOT NULL, vacancia REAL, inadimplencia REAL, imoveis INTEGER,  -- %
+    PRIMARY KEY (codigo, data)
+) WITHOUT ROWID;
 DROP VIEW IF EXISTS ativos;
 CREATE VIEW ativos AS
     SELECT 'ETF' AS tipo, {cols}, pl, pvp FROM etfs

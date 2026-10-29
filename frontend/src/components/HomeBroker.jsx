@@ -5,6 +5,7 @@ import { carteiraDoLink, limparLink, linkDaCarteira } from '../lib/compartilhar.
 import { fmt, signClass, signed } from '../format.js'
 import Desempenho, { ImpostoVendas, useDesempenho } from './Desempenho.jsx'
 import Declaracao from './Declaracao.jsx'
+import Relatorio from './Relatorio.jsx'
 import Operacoes from './Operacoes.jsx'
 import Alertas from './Alertas.jsx'
 import Rebalanceamento from './Rebalanceamento.jsx'
@@ -195,6 +196,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
   const arquivo = useRef(null)
   const [recebida, setRecebida] = useState(null) // carteira vinda de um link compartilhado
   const [copiado, setCopiado] = useState(null)
+  const [relatorio, setRelatorio] = useState(false)
 
   useEffect(() => {
     carteiraDoLink().then((c) => c && setRecebida(c)).catch(() => setRecebida({ erro: true }))
@@ -322,9 +324,20 @@ export default function HomeBroker({ onOpen, onSimular }) {
     a.download = `${carteira.nome.replace(/[^\w-]+/g, '_')}.json`
     a.click()
   }
+  const [lendoB3, setLendoB3] = useState(null) // extrato da B3 escolhido pelo botão Importar
   const importar = (e) => {
     const f = e.target.files?.[0]
     if (!f) return
+    if (!/\.json$/i.test(f.name)) {
+      // Excel/CSV: extrato da B3 (Negociação, Movimentação ou Posição) → carteira nova
+      e.target.value = ''
+      setLendoB3({ carregando: true })
+      const leitor = new FileReader()
+      leitor.onload = () => api.importarB3({ arquivo_base64: String(leitor.result).split(',')[1], nome: f.name })
+        .then((r) => setLendoB3({ ...r, nome: f.name })).catch((err) => setLendoB3({ erro: err.message }))
+      leitor.readAsDataURL(f)
+      return
+    }
     f.text().then((txt) => {
       const d = JSON.parse(txt)
       const pos = Array.isArray(d) ? d : d.posicoes
@@ -344,6 +357,23 @@ export default function HomeBroker({ onOpen, onSimular }) {
     </th>
   )
 
+  const avisoB3 = lendoB3 && (
+    <div className="alert section" style={{ marginBottom: 12 }}>
+      {lendoB3.carregando ? 'Lendo o extrato da B3…' : lendoB3.erro ? <>{lendoB3.erro} <button className="chip" onClick={() => setLendoB3(null)}>OK</button></> : (
+        <>
+          <b>{lendoB3.transacoes.length} operações</b> em {lendoB3.nome}
+          {Object.keys(lendoB3.ignoradas).length > 0 && <> · ignoradas: {Object.entries(lendoB3.ignoradas).map(([k, v]) => `${k} (${v})`).join(', ')}</>}
+          {lendoB3.avisos.map((a) => <div key={a} className="muted" style={{ fontSize: 13 }}>{a}</div>)}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="btn primary" disabled={!lendoB3.transacoes.length}
+              onClick={() => { criar(`B3 · ${lendoB3.nome.replace(/\.(xlsx|xls|csv)$/i, '')}`, [], lendoB3.transacoes); setLendoB3(null) }}>Criar carteira com essas operações</button>
+            <button className="btn" onClick={() => setLendoB3(null)}>Cancelar</button>
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Para juntar a uma carteira que já existe, use "Importar extrato da B3" no quadro Operações dela.</div>
+        </>
+      )}
+    </div>
+  )
   const compartilhar = async () => {
     const link = await linkDaCarteira(carteira)
     try { await navigator.clipboard.writeText(link); setCopiado('Link copiado') } catch { window.prompt('Copie o link da carteira:', link); setCopiado(null) }
@@ -372,12 +402,13 @@ export default function HomeBroker({ onOpen, onSimular }) {
       <>
         <h1>Home Broker</h1>
         {avisoLink}
+        {avisoB3}
         <p className="sub">Acompanhe uma carteira em tempo real: patrimônio, variação do dia, resultado por ativo e renda estimada. As carteiras ficam salvas só neste navegador.</p>
         <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="btn primary" onClick={() => criar('Minha carteira')}>Criar carteira vazia</button>
           <button className="btn" onClick={() => criar('Carteira de exemplo', EXEMPLO)}>Começar com um exemplo</button>
-          <button className="btn" onClick={() => arquivo.current?.click()}>Importar JSON</button>
-          <input ref={arquivo} type="file" accept="application/json,.json" hidden onChange={importar} />
+          <button className="btn" onClick={() => arquivo.current?.click()} title="Extrato da B3 (Excel/CSV: Negociação, Movimentação ou Posição) ou JSON exportado daqui">Importar extrato B3 ou JSON</button>
+          <input ref={arquivo} type="file" accept=".json,.xlsx,.xls,.csv,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden onChange={importar} />
           <span className="muted" style={{ fontSize: 13 }}>Também dá para trazer uma carteira otimizada pela aba Markowitz.</span>
         </div>
       </>
@@ -402,6 +433,8 @@ export default function HomeBroker({ onOpen, onSimular }) {
         </div>
       </div>
       {avisoLink && <div style={{ marginTop: 12 }}>{avisoLink}</div>}
+      {avisoB3 && <div style={{ marginTop: 12 }}>{avisoB3}</div>}
+      {relatorio && <Relatorio carteira={carteira} linhas={linhas} tot={tot} desemp={desemp} agenda={agenda} onFechar={() => setRelatorio(false)} />}
 
       <div className="filters" style={{ marginTop: 12 }}>
         <label className="field">Carteira
@@ -412,9 +445,10 @@ export default function HomeBroker({ onOpen, onSimular }) {
         <button className="btn" onClick={() => criar(`Carteira ${estado.carteiras.length + 1}`)}>Nova</button>
         <button className="btn" onClick={renomear}>Renomear</button>
         <button className="btn" onClick={exportar}>Exportar</button>
+        {posicoes.length > 0 && <button className="btn" onClick={() => setRelatorio(true)} title="Relatório da carteira para imprimir ou salvar em PDF">Relatório PDF</button>}
         <button className="btn" onClick={compartilhar} title="Link com as operações desta carteira (vai no próprio link; não fica salvo em servidor)">{copiado || 'Compartilhar link'}</button>
-        <button className="btn" onClick={() => arquivo.current?.click()}>Importar</button>
-        <input ref={arquivo} type="file" accept="application/json,.json" hidden onChange={importar} />
+        <button className="btn" onClick={() => arquivo.current?.click()} title="Extrato da B3 (Excel/CSV) vira uma carteira nova; JSON exportado daqui também">Importar</button>
+        <input ref={arquivo} type="file" accept=".json,.xlsx,.xls,.csv,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden onChange={importar} />
         {onSimular && posicoes.length > 0 && tot.valor > 0 && (
           <button className="btn" onClick={() => onSimular({ tickers, pesos: linhas.map((l) => (l.valor || 0) / tot.valor), valor_inicial: tot.valor, nome: carteira.nome })}>
             Simular no Monte Carlo

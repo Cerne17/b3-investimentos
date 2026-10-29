@@ -185,3 +185,79 @@ def carregar_acoes() -> list[dict]:
             "controle_acionario": (c["CONTROLE_ACIONARIO"] if c is not None else "") or None,
         })
     return out
+
+
+# ---------- histórico de FIIs para o comparador ----------
+
+URL_TRI = "https://dados.cvm.gov.br/dados/FII/DOC/INF_TRIMESTRAL/DADOS/inf_trimestral_fii_{ano}.zip"
+
+
+def _codigo_por_cnpj(geral: pd.DataFrame) -> dict[str, str]:
+    g = geral.sort_values(["CNPJ_Fundo_Classe", "Data_Referencia"]).groupby("CNPJ_Fundo_Classe").tail(1)
+    out = {}
+    for _, r in g.iterrows():
+        isin = str(r.get("Codigo_ISIN") or "")
+        if isin.startswith("BR") and len(isin) >= 6:
+            out[r["CNPJ_Fundo_Classe"]] = isin[2:6]
+    return out
+
+
+def historico(anos: int = 3) -> tuple[list[tuple], list[tuple]]:
+    """Séries mensais (VP/cota, PL, cotistas, DY e rentabilidades do mês, taxa de administração) dos últimos `anos`
+    anos e trimestrais (vacância física ponderada pela área, inadimplência ponderada pela receita, nº de imóveis)."""
+    hoje = date.today().year
+    mensal, geral = [], []
+    for a in range(hoje - anos + 1, hoje + 1):
+        try:
+            d = _baixar(a)
+        except httpx.HTTPError:
+            continue
+        mensal.append(d["complemento"])
+        geral.append(d["geral"])
+    if not mensal:
+        return [], []
+    codigos = _codigo_por_cnpj(pd.concat(geral, ignore_index=True))
+    c = pd.concat(mensal, ignore_index=True).sort_values(["CNPJ_Fundo_Classe", "Data_Referencia", "Versao"])
+    c = c.drop_duplicates(["CNPJ_Fundo_Classe", "Data_Referencia"], keep="last")
+    linhas_m = []
+    for _, r in c.iterrows():
+        cod = codigos.get(r["CNPJ_Fundo_Classe"])
+        if not cod:
+            continue
+        pct = lambda k: None if pd.isna(r.get(k)) else round(float(r[k]) * 100, 4)
+        linhas_m.append((cod, str(r["Data_Referencia"])[:7], _f(r.get("Valor_Patrimonial_Cotas")), _f(r.get("Patrimonio_Liquido")),
+                         None if pd.isna(r.get("Total_Numero_Cotistas")) else int(r["Total_Numero_Cotistas"]),
+                         pct("Percentual_Dividend_Yield_Mes"), pct("Percentual_Rentabilidade_Efetiva_Mes"),
+                         pct("Percentual_Rentabilidade_Patrimonial_Mes"), pct("Percentual_Despesas_Taxa_Administracao")))
+
+    imoveis = []
+    for a in range(hoje - 1, hoje + 1):
+        try:
+            r = httpx.get(URL_TRI.format(ano=a), timeout=120, follow_redirects=True)
+            r.raise_for_status()
+        except httpx.HTTPError:
+            continue
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            nome = next((n for n in z.namelist() if n.endswith(f"inf_trimestral_fii_imovel_{a}.csv")), None)
+            if nome:
+                imoveis.append(pd.read_csv(z.open(nome), sep=";", encoding="latin-1", low_memory=False))
+    linhas_t = []
+    if imoveis:
+        im = pd.concat(imoveis, ignore_index=True)
+        im = im[im["Data_Referencia"].astype(str).str[5:7].isin(["03", "06", "09", "12"])]
+        for (cnpj, ref), g in im.groupby(["CNPJ_Fundo_Classe", "Data_Referencia"]):
+            cod = codigos.get(cnpj)
+            if not cod:
+                continue
+            col = lambda k: pd.to_numeric(g[k], errors="coerce") if k in g else pd.Series(float("nan"), index=g.index)
+            area = col("Area").fillna(0)
+            vac, inad = col("Percentual_Vacancia"), col("Percentual_Inadimplencia")
+            rec = col("Percentual_Receitas_FII").fillna(0)
+            ok = vac.notna() & (area > 0)
+            vac_f = float((vac[ok] * area[ok]).sum() / area[ok].sum() * 100) if ok.any() else None
+            ok2 = inad.notna() & (rec > 0)
+            inad_f = float((inad[ok2] * rec[ok2]).sum() / rec[ok2].sum() * 100) if ok2.any() else (
+                float(inad.mean() * 100) if inad.notna().any() else None)
+            linhas_t.append((cod, str(ref)[:10], None if vac_f is None else round(vac_f, 2),
+                             None if inad_f is None else round(inad_f, 2), int(len(g))))
+    return linhas_m, linhas_t
