@@ -36,7 +36,8 @@ jobs:
       - name: Partir da base publicada
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download dados -p b3.db -O data/b3.db --clobber || echo "sem release de dados: parte da base do repositório"
+        run: |
+          gh release download dados -p b3.db -O data/b3.db --clobber || echo "sem release de dados, parte da base do repositório"
       - name: Coletar
         working-directory: backend
         env:
