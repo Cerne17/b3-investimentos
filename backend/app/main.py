@@ -4,7 +4,7 @@ Rodar:  uvicorn app.main:app --reload --port 8000
 Docs:   http://localhost:8000/docs  (Swagger)  ·  /redoc  ·  /openapi.json (importável no Postman)
 """
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Path as P, Query, Request
@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
+from . import desempenho, importar_b3, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
 from .db import ROOT, SOMENTE_LEITURA, init_db
 
 TAGS = [
@@ -294,6 +294,47 @@ def opcoes_carteira():
     return {"indicadores": portfolio.INDICADORES, "filosofias": portfolio.FILOSOFIAS}
 
 
+class Operacao(BaseModel):
+    data: date = Field(..., examples=["2025-03-15"])
+    ticker: str = Field(..., examples=["PETR4"])
+    tipo: Literal["compra", "venda"] = "compra"
+    quantidade: float = Field(..., gt=0, description="Cotas (cripto e renda fixa aceitam frações)")
+    preco: float = Field(0, ge=0, description="Preço por cota na operação, como negociado (antes de desdobramentos)")
+
+
+class PedidoDesempenho(BaseModel):
+    transacoes: list[Operacao] = Field(..., min_length=1)
+    benchmarks: list[str] | None = Field(None, examples=[["IBOV", "CDI", "IFIX"]],
+                                         description="IBOV, CDI, IFIX, S&P 500 ou qualquer ticker; vazio = todos os padrões")
+
+
+class ArquivoB3(BaseModel):
+    arquivo_base64: str = Field(..., description="Conteúdo do .xlsx ou .csv exportado da Área do Investidor, em base64")
+    nome: str = Field("extrato.xlsx", description="Nome do arquivo (a extensão define o formato)")
+
+
+@app.post("/api/carteira/desempenho", tags=["Carteira"], summary="Desempenho real a partir das operações")
+def desempenho_carteira(p: PedidoDesempenho):
+    """Valor da carteira dia a dia, total investido, proventos recebidos (na data ex, pela posição da véspera),
+    rentabilidade ponderada no tempo (TWR), taxa interna de retorno (TIR) e comparação com IBOV, CDI, IFIX e S&P 500 —
+    no mesmo período e "se os mesmos aportes tivessem ido para o índice". Operações antes de desdobramentos são
+    convertidas automaticamente para a base atual."""
+    try:
+        return desempenho.desempenho([o.model_dump() for o in p.transacoes], p.benchmarks)
+    except (ValueError, LookupError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/carteira/importar-b3", tags=["Carteira"], summary="Lê operações do extrato da B3")
+def importar_extrato_b3(p: ArquivoB3):
+    """Extrato de Negociação ou de Movimentação da Área do Investidor (investidor.b3.com.br) → lista de operações
+    (compras, vendas e bonificações). Proventos e desdobramentos não são importados: o desempenho os recalcula."""
+    try:
+        return importar_b3.importar(p.arquivo_base64, p.nome)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post("/api/carteira/otimizar", tags=["Carteira"], summary="Otimiza a carteira e calcula a alocação em cotas")
 def otimizar_carteira(p: PedidoCarteira):
     """Retornos diários totais (preço + proventos reinvestidos, ajustados por desdobramentos) no período escolhido.
@@ -382,6 +423,13 @@ def cotacoes(tickers: str = Query(..., examples=["HGLG11,BOVA11,IVVB11"])):
         except Exception as e:
             out[t.upper()] = {"erro": str(e)}
     return out
+
+
+@app.get("/api/tempo-real/preco/{ticker}", tags=["Tempo real"], summary="Preço de fechamento numa data")
+def preco_na_data(ticker: str = P(..., examples=["PETR4"]), data: date = Query(..., examples=["2025-03-14"])):
+    """Fechamento do dia (ou do último pregão antes dele) como negociado na época, sem ajuste de desdobramentos
+    posteriores. Para renda fixa (CDI, IPCA+6...), o valor do índice — útil para converter um valor aplicado em cotas."""
+    return _yahoo(desempenho.preco_em, ticker, data)
 
 
 @app.get("/api/tempo-real/proventos", tags=["Tempo real"], summary="Proventos dos últimos 12 meses de vários ativos")

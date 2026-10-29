@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
-import { carregar, limpar, novaCarteira, salvar } from '../lib/broker.js'
+import { carregar, novaCarteira, salvar } from '../lib/broker.js'
 import { fmt, signClass, signed } from '../format.js'
-import BuscaAtivo from './BuscaAtivo.jsx'
+import Desempenho from './Desempenho.jsx'
+import Operacoes from './Operacoes.jsx'
 import { BarChart, MultiLineChart } from './Charts.jsx'
 import { TITULOS } from './live/comum.jsx'
 import { ehCripto, ehRendaFixa } from '../lib/ativos.js'
@@ -147,7 +148,6 @@ export default function HomeBroker({ onOpen, onSimular }) {
   const [auto, setAuto] = useState(true)
   const [tick, setTick] = useState(0)
   const [periodo, setPeriodo] = useState('1d')
-  const [novo, setNovo] = useState({ ticker: '', quantidade: '', preco_medio: '' })
   const [ordem, setOrdem] = useState({ col: 'valor', dir: -1 })
   const arquivo = useRef(null)
 
@@ -156,8 +156,9 @@ export default function HomeBroker({ onOpen, onSimular }) {
   const tickers = posicoes.map((p) => p.ticker)
 
   const atualizarEstado = (fn) => setEstado((e) => salvar(fn(e)))
-  const setPosicoes = (fn) => atualizarEstado((e) => ({
-    ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, posicoes: limpar(fn(c.posicoes)) } : c)),
+  const transacoes = carteira?.transacoes || []
+  const setTransacoes = (fn) => atualizarEstado((e) => ({
+    ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, transacoes: fn(c.transacoes || []) } : c)),
   }))
 
   // cotações ao vivo (a API guarda cache de 30 s)
@@ -233,7 +234,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
   }), [linhas, ordem])
 
   // ---- ações de carteira ----
-  const criar = (nome, pos = []) => setEstado(novaCarteira(nome, pos))
+  const criar = (nome, pos = [], ops = null) => setEstado(novaCarteira(nome, pos, ops))
   const renomear = () => {
     const nome = window.prompt('Nome da carteira:', carteira.nome)
     if (nome) atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, nome } : c)) }))
@@ -257,23 +258,16 @@ export default function HomeBroker({ onOpen, onSimular }) {
     f.text().then((txt) => {
       const d = JSON.parse(txt)
       const pos = Array.isArray(d) ? d : d.posicoes
-      if (!Array.isArray(pos)) throw new Error('formato')
-      criar(d.nome || f.name.replace(/\.json$/i, ''), pos)
-    }).catch(() => window.alert('Arquivo inválido: esperado um JSON com { nome, posicoes: [{ ticker, quantidade, preco_medio }] }.'))
+      const nome = d.nome || f.name.replace(/\.json$/i, '')
+      if (Array.isArray(d.transacoes)) criar(nome, [], d.transacoes)
+      else if (Array.isArray(pos)) criar(nome, pos)
+      else throw new Error('formato')
+    }).catch(() => window.alert('Arquivo inválido: esperado um JSON exportado daqui ({ nome, transacoes }) ou { nome, posicoes: [{ ticker, quantidade, preco_medio }] }.'))
     e.target.value = ''
   }
-  const escolherNovo = (t) => {
-    setNovo((n) => ({ ...n, ticker: t }))
-    api.cotacao(t).then((q) => setNovo((n) => (n.ticker === t && !n.preco_medio ? { ...n, preco_medio: +q.preco.toPrecision(6) } : n))).catch(() => {})
+  const remover = (ticker) => {
+    if (window.confirm(`Apagar todas as operações de ${ticker} desta carteira?`)) setTransacoes((ts) => ts.filter((t) => t.ticker !== ticker))
   }
-  const adicionar = (e) => {
-    e.preventDefault()
-    if (!novo.ticker || !(Number(novo.quantidade) > 0)) return
-    setPosicoes((ps) => [...ps, { ticker: novo.ticker, quantidade: Number(novo.quantidade), preco_medio: Number(novo.preco_medio) || 0 }])
-    setNovo({ ticker: '', quantidade: '', preco_medio: '' })
-  }
-  const editar = (ticker, campo, v) => setPosicoes((ps) => ps.map((p) => (p.ticker === ticker ? { ...p, [campo]: Number(v) } : p)))
-  const remover = (ticker) => setPosicoes((ps) => ps.filter((p) => p.ticker !== ticker))
   const th = (col, label, cls = '') => (
     <th className={`${cls} ${ordem.col === col ? 'sorted' : ''}`} onClick={() => setOrdem((o) => ({ col, dir: o.col === col ? -o.dir : -1 }))}>
       {label}{ordem.col === col ? (ordem.dir < 0 ? ' ↓' : ' ↑') : ''}
@@ -387,14 +381,13 @@ export default function HomeBroker({ onOpen, onSimular }) {
           setMetaRenda={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, meta_renda: v } : c)) }))} />
       )}
 
+      <Operacoes transacoes={transacoes} setTransacoes={setTransacoes}
+        onImportarB3={(ops, arquivo) => criar(`B3 · ${arquivo.replace(/\.(xlsx|xls|csv)$/i, '')}`, [], ops)} />
+
+      <Desempenho transacoes={transacoes} />
+
       <div className="card">
-        <form className="filters" onSubmit={adicionar} style={{ marginBottom: 8 }}>
-          <BuscaAtivo onAdd={escolherNovo} label="Adicionar posição" width={240} />
-          {novo.ticker && <div className="field">Ativo<span className="sel-chip" style={{ marginTop: 4 }}>{novo.ticker}</span></div>}
-          <label className="field">Quantidade<input type="number" step="any" min="0" value={novo.quantidade} onChange={(e) => setNovo({ ...novo, quantidade: e.target.value })} /></label>
-          <label className="field">Preço médio (R$)<input type="number" step="any" min="0" value={novo.preco_medio} onChange={(e) => setNovo({ ...novo, preco_medio: e.target.value })} /></label>
-          <button className="btn primary" disabled={!novo.ticker || !(Number(novo.quantidade) > 0)}>Adicionar</button>
-        </form>
+        <h2 style={{ marginTop: 0 }}>Posições</h2>
         <div className="table-wrap" style={{ border: 0 }}>
           <table>
             <thead>
@@ -413,14 +406,8 @@ export default function HomeBroker({ onOpen, onSimular }) {
                     {l.tipo && <span className="badge" style={{ marginLeft: 6 }}>{CLASSES[l.tipo]}</span>}
                     <span className="nm">{l.erro || l.nome}</span>
                   </td>
-                  <td className="num" onClick={(e) => e.stopPropagation()}>
-                    <input className="hb-edit" type="number" step="any" min="0" defaultValue={l.quantidade} aria-label={`Quantidade de ${l.ticker}`}
-                      key={`q${l.quantidade}`} onBlur={(e) => Number(e.target.value) !== l.quantidade && editar(l.ticker, 'quantidade', e.target.value)} />
-                  </td>
-                  <td className="num" onClick={(e) => e.stopPropagation()}>
-                    <input className="hb-edit" type="number" step="any" min="0" defaultValue={l.preco_medio} aria-label={`Preço médio de ${l.ticker}`}
-                      key={`p${l.preco_medio}`} onBlur={(e) => Number(e.target.value) !== l.preco_medio && editar(l.ticker, 'preco_medio', e.target.value)} />
-                  </td>
+                  <td className="num">{qtdFmt(l.quantidade)}</td>
+                  <td className="num">{fmt.preco(l.preco_medio)}</td>
                   <td className="num"><b>{l.preco != null ? fmt.preco(l.preco) : '…'}</b></td>
                   <td className={`num ${signClass(l.var_pct)}`}>{signed(l.var_pct)}</td>
                   <td className={`num ${signClass(l.var_dia)}`}>{l.var_dia != null ? fmt.brl(l.var_dia) : '—'}</td>
@@ -438,10 +425,10 @@ export default function HomeBroker({ onOpen, onSimular }) {
               ))}
             </tbody>
           </table>
-          {!posicoes.length && <div className="empty">Carteira vazia — adicione a primeira posição acima.</div>}
+          {!posicoes.length && <div className="empty">Carteira vazia — registre a primeira compra em Operações, acima.</div>}
         </div>
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-          Quantidades fracionárias valem para cripto (ex.: 0,0012 BTC-BRL). Renda estimada = proventos pagos nos últimos 12 meses ÷ 12 (Yahoo Finance; sem cripto).
+          Quantidades fracionárias valem para cripto (ex.: 0,0012 BTC-BRL) e renda fixa (lançada em reais). Posições = operações pelo custo médio. Renda estimada = proventos pagos nos últimos 12 meses ÷ 12 (Yahoo Finance; sem cripto).
           Somente acompanhamento: não envia ordens.
         </p>
       </div>
