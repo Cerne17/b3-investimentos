@@ -131,6 +131,11 @@ do Banco Central; aplicar R$ 1.000 num dia equivale a comprar 1.000 ÷ índice "
 sem marcação a mercado. As séries ficam na base (`python -m app.ingest --only rendafixa`) e são completadas em tempo
 real pelo endpoint "últimos N" do BCB.
 
+Tesouro Direto com preço de mercado: `TD-<tipo>-<ano>` — `TD-SELIC-2029`, `TD-PRE-2031`, `TD-PREJ-2035`,
+`TD-IPCA-2035`, `TD-IPCAJ-2045`, `TD-IGPMJ-2031`, `TD-RENDA-2059`, `TD-EDUCA-2040`. O preço é o PU diário do Tesouro
+Transparente desde 2012 (quanto o título vale se vendido antes do vencimento); nos títulos com juros semestrais o cupom
+entra como provento. A busca sugere os títulos à venda (`?q=tesouro ipca`) e o extrato da B3 os importa direto.
+
 ## Monte Carlo
 
 ```bash
@@ -181,7 +186,16 @@ ex, pela posição da véspera), rentabilidade ponderada no tempo (TWR), taxa in
 IBOV, CDI, IFIX (XFIX11) e S&P 500 (IVVB11) — no período e "se os mesmos aportes tivessem ido para o índice". Operações
 anteriores a desdobramentos são convertidas para a base atual. O extrato de Negociação ou de Movimentação da Área do
 Investidor da B3 (.xlsx/.csv) vira uma carteira com `POST /api/carteira/importar-b3`, e
-`GET /api/tempo-real/preco/{ticker}?data=` dá o preço como negociado numa data.
+`GET /api/tempo-real/preco/{ticker}?data=` dá o preço como negociado numa data. Desdobro, grupamento e bonificação do
+extrato entram como eventos (sem dinheiro) e são descartados quando o Yahoo já os aplicou aos preços; as posições
+exibidas vêm do servidor, já na base atual. O desempenho traz também a apuração mensal do **IR sobre vendas** (`ir`):
+isenção de ações até R$ 20 mil/mês e de cripto até R$ 35 mil, ETFs/BDRs 15%, FIIs 20%, compensação de prejuízo por
+categoria e DARF mínimo de R$ 10.
+
+Cada operação pode ser editada (data, tipo, quantidade, preço). **Compartilhar link** gera um link com as operações
+comprimidas depois do `#` (não passam pelo servidor); quem abre escolhe importar. **Alertas** por carteira (preço
+acima/abaixo, alta/queda no dia, DY acima) são checados a cada cotação, com notificação do navegador opcional. No
+celular, as tabelas viram cartões.
 
 Também: cotações a cada 30 s, variação do
 dia, resultado por ativo, renda passiva estimada pelos proventos de 12 meses, alocação por ativo e por classe e o valor
@@ -218,6 +232,16 @@ Indicadores (`indicadores`): `sharpe`, `sortino`, `calmar`, `renda_risco` (DY/vo
 Filosofias (`filosofia`) que escolhem os indicadores sozinhas: `value_conservador`, `renda`, `defensivo`,
 `equilibrado`, `crescimento` (`GET /api/carteira/opcoes`). A resposta sempre traz também a carteira de pesos
 iguais, métricas por ativo, matriz de correlação e a fronteira eficiente.
+
+## Testes e coleta automática
+
+```bash
+cd backend && .venv/bin/python -m pytest -q tests   # sem rede: dados de mercado sintéticos
+```
+
+GitHub Actions: `testes.yml` roda os testes e o build do dashboard a cada push; `coleta.yml` atualiza `data/b3.db`
+(dias úteis às 20h30: renda fixa; sábado: coleta completa) e faz commit, o que dispara o deploy da Vercel. Também dá
+para rodar à mão em Actions → Coleta de dados → Run workflow.
 
 ## MCP
 

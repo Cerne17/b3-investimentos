@@ -2343,6 +2343,23 @@
                         "title": "Preco",
                         "description": "Pre\u00e7o por cota na opera\u00e7\u00e3o, como negociado (antes de desdobramentos)",
                         "default": 0
+                    },
+                    "evento": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "enum": [
+                                    "desdobro",
+                                    "grupamento",
+                                    "bonificacao"
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Evento",
+                        "description": "Evento societ\u00e1rio (sem dinheiro): ignorado se o Yahoo j\u00e1 o registra nos pre\u00e7os"
                     }
                 },
                 "type": "object",
