@@ -454,3 +454,23 @@ def _historico(ticker: str, period: str, interval: str) -> list[dict]:
         }
         for idx, r in hist.iterrows()
     ]
+
+
+_PROVENTOS: dict[str, tuple[float, list]] = {}
+
+
+def proventos(ticker: str) -> list[dict]:
+    """Proventos pagos por cota nos últimos 12 meses (data ex e valor), direto do Yahoo. Cache de 6 horas."""
+    hit = _PROVENTOS.get(ticker)
+    if hit and time.time() - hit[0] < 6 * 3600:
+        return hit[1]
+    if eh_cripto(ticker):
+        out = []
+    else:
+        hist = history(ticker, "1y")
+        divs = hist["Dividends"] if "Dividends" in hist else pd.Series(dtype=float)
+        divs = divs[divs > 0]
+        out = [{"data": d.strftime("%Y-%m-%d"), "valor": round(float(v), 6)} for d, v in divs.items()]
+    _PROVENTOS[ticker] = (time.time(), out)
+    return out
+

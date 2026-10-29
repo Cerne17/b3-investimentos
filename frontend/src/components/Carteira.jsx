@@ -58,6 +58,12 @@ function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker }) {
         <span>Investido <b className="num">{fmt.brl(a.investido)}</b></span>
         <span className="muted">Sobra <span className="num">{fmt.brl(a.sobra)}</span></span>
       </div>
+      {a.renda_mensal != null && (
+        <div className="port-total" style={{ marginTop: 4 }}>
+          <span title="Proventos pagos nos últimos 12 meses por cota × cotas compradas, ÷ 12">Renda estimada <b className="num">{fmt.brl(a.renda_mensal)}/mês</b></span>
+          <span className="muted"><span className="num">{fmt.brl(a.renda_anual)}</span>/ano</span>
+        </div>
+      )}
       <div className="kv">
         {[['Retorno', signed(c.metricas.retorno_anual)], ['Volatilidade', fmt.pct(c.metricas.volatilidade)], ['Sharpe', fmt.num(c.metricas.sharpe)],
           ['Sortino', fmt.num(c.metricas.sortino)], ['Drawdown', signed(c.metricas.max_drawdown)], ['DY', fmt.pct(c.metricas.dividend_yield)]].map(([l, v]) => (
@@ -82,6 +88,7 @@ export default function Carteira({ onSimular, onBroker }) {
   const [pmax, setPmax] = useState(35)
   const [periodo, setPeriodo] = useState('2y')
   const [rf, setRf] = useState(14)
+  const [dyMin, setDyMin] = useState('')
   const [filosofia, setFilosofia] = useState('value_conservador')
   const [inds, setInds] = useState(['sharpe', 'sortino', 'calmar', 'renda_risco'])
   const [res, setRes] = useState(null)
@@ -110,7 +117,7 @@ export default function Carteira({ onSimular, onBroker }) {
     try {
       setRes(await api.otimizar({
         tickers, valor: Number(valor), peso_min: pmin / 100, peso_max: pmax / 100, periodo,
-        taxa_livre_risco: rf / 100, indicadores: inds, filosofia: filosofia || null,
+        taxa_livre_risco: rf / 100, indicadores: inds, filosofia: filosofia || null, dy_min: dyMin === '' ? null : Number(dyMin),
       }))
     } catch (e) { setErro(e.message); setRes(null) } finally { setRodando(false) }
   }
@@ -159,6 +166,9 @@ export default function Carteira({ onSimular, onBroker }) {
             <select value={periodo} onChange={(e) => setPeriodo(e.target.value)}>
               <option value="1y">1 ano</option><option value="2y">2 anos</option><option value="5y">5 anos</option><option value="10y">10 anos</option>
             </select>
+          </label>
+          <label className="field" title="Restrição: toda carteira otimizada precisa ter pelo menos este dividend yield (proventos dos últimos 12 meses). Vazio = sem restrição.">
+            DY mínimo (% a.a.)<input type="number" min="0" max="50" step="0.5" placeholder="sem mínimo" value={dyMin} onChange={(e) => setDyMin(e.target.value)} />
           </label>
           <label className="field">Taxa livre de risco (% a.a.)<input type="number" value={rf} step="0.25" onChange={(e) => setRf(Number(e.target.value))} /></label>
           <label className="field">Filosofia / perfil

@@ -26,6 +26,7 @@ export const api = {
   comparar: (codigos) => req(`/api/comparar?${qs({ codigos: codigos.join(',') })}`),
   proventos: (codigo) => req(`/api/proventos/${codigo}`),
   cotacao: (ticker) => req(`/api/tempo-real/cotacao/${encodeURIComponent(ticker)}`),
+  proventosRecentes: (tickers) => req(`/api/tempo-real/proventos?${qs({ tickers: tickers.join(',') })}`),
   cotacoes: (tickers) => req(`/api/tempo-real/cotacoes?${qs({ tickers: tickers.join(',') })}`),
   historico: (ticker, periodo = '6mo', intervalo = '1d') =>
     req(`/api/tempo-real/historico/${encodeURIComponent(ticker)}?${qs({ periodo, intervalo })}`),

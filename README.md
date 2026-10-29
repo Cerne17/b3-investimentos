@@ -126,6 +126,12 @@ curl -X POST localhost:8000/api/montecarlo/carteira -H 'content-type: applicatio
   "valor_inicial": 400, "aporte_mensal": 400, "anos": 10, "meta": 100000, "inflacao": 0.045
 }'
 
+# carteira de renda: proventos sacados todo mês e chance de chegar a R$ 3 mil/mês em 15 anos
+curl -X POST localhost:8000/api/montecarlo/carteira -H 'content-type: application/json' -d '{
+  "tickers": ["MXRF11", "TVRI11", "BBSE3", "TAEE11"], "valor_inicial": 20000, "aporte_mensal": 1000, "anos": 15,
+  "proventos": "sacar", "meta_tipo": "renda", "meta": 3000, "inflacao": 0.045
+}'
+
 # cone de preço do bitcoin em 1 ano
 curl -X POST localhost:8000/api/montecarlo/ativo -H 'content-type: application/json' -d '{"ticker": "BTC-BRL", "dias": 365}'
 ```
@@ -136,11 +142,19 @@ cada mês. Com `meta`, a resposta traz a chance de atingi-la (no fim e ano a ano
 mensal necessário para 50/75/90% de chance (o valor final é linear no aporte para os mesmos sorteios, então sai por
 bisseção sem simular de novo).
 
+Proventos (`proventos`): `reinvestir` (retorno total) ou `sacar` — o patrimônio cresce só pelo preço e o provento vira
+renda. Nos dois casos a resposta traz `renda`: renda mensal (média de 12 meses) no 1º ano e no fim, leque mês a mês,
+total recebido e yield on cost. No bootstrap a renda vem dos proventos dos mesmos dias sorteados; nos métodos
+paramétricos, do rendimento médio histórico. Com `meta_tipo: "renda"`, `meta` é a renda mensal desejada no fim do
+horizonte (o aporte necessário também sai por bisseção). Sem imposto de renda.
+
 ## Home Broker
 
 Aba de acompanhamento (sem ordens): várias carteiras com quantidade e preço médio, cotações a cada 30 s, variação do
 dia, resultado por ativo, renda passiva estimada pelos proventos de 12 meses, alocação por ativo e por classe e o valor
-da carteira atual ao longo do dia/semana/mês/ano. As carteiras ficam no `localStorage` do navegador (exportar/importar
+da carteira atual ao longo do dia/semana/mês/ano. O painel de proventos mostra o recebido por mês nos últimos 12 meses
+(com as quantidades de hoje), pagamentos e yield on cost por ativo e o progresso até uma meta de renda mensal
+(`GET /api/tempo-real/proventos?tickers=MXRF11,PETR4`). As carteiras ficam no `localStorage` do navegador (exportar/importar
 JSON); a aba Markowitz manda uma carteira otimizada direto para o Home Broker ou para o Monte Carlo.
 
 ## Markowitz
@@ -155,6 +169,9 @@ curl -X POST localhost:8000/api/carteira/otimizar -H 'content-type: application/
   "peso_min": 0, "peso_max": 0.35, "filosofia": "value_conservador"
 }'
 ```
+
+`dy_min` (% a.a.) impõe um dividend yield mínimo a todas as carteiras otimizadas (e à fronteira); cada carteira traz a
+renda mensal estimada da alocação (`alocacao.renda_mensal`).
 
 Indicadores (`indicadores`): `sharpe`, `sortino`, `calmar`, `renda_risco` (DY/volatilidade), `omega`, `min_vol`,
 `min_cvar`, `min_drawdown`, `risk_parity`, `max_dy`, `max_retorno`.

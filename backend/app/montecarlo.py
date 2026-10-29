@@ -6,7 +6,9 @@ Métodos de geração dos retornos diários futuros:
 * normal — passeio aleatório geométrico (GBM) com média e volatilidade históricas;
 * t — como o normal, mas com t de Student (4 graus de liberdade) para quedas extremas mais frequentes.
 
-Carteira: retorno total (preço + proventos reinvestidos), rebalanceada para os pesos-alvo; aporte no fim de cada mês.
+Carteira: rebalanceada para os pesos-alvo; aporte no fim de cada mês. Os proventos podem ser reinvestidos (retorno
+total) ou sacados (o patrimônio cresce só pelo preço e o provento vira renda); nos dois casos a renda mensal gerada
+é medida — no bootstrap, pelos proventos dos mesmos dias sorteados; nos métodos paramétricos, pelo rendimento médio.
 """
 import math
 from datetime import date
@@ -14,7 +16,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from .portfolio import exigir_historico, retornos_alinhados
+from .portfolio import exigir_historico, proventos_alinhados, retornos_alinhados
 from .yahoo import TAXA_LIVRE_RISCO, ajustar_splits, cotacao, eh_cripto, history
 
 METODOS = {
@@ -27,13 +29,17 @@ BLOCO = 20
 MAX_PONTOS = 12_000_000  # simulações x dias — limita memória/tempo da função
 
 
+def _indices_bootstrap(T: int, dias: int, n: int, rng: np.random.Generator) -> np.ndarray:
+    blocos = math.ceil(dias / BLOCO)
+    inicio = rng.integers(0, T, size=(n, blocos), dtype=np.int32)
+    idx = (inicio[:, :, None] + np.arange(BLOCO, dtype=np.int32)[None, None, :]) % T  # circular
+    return idx.reshape(n, -1)[:, :dias]
+
+
 def _gerar(r: np.ndarray, dias: int, n: int, metodo: str, rng: np.random.Generator) -> np.ndarray:
     """Matriz (n, dias) de retornos diários simulados a partir da série histórica r."""
     if metodo == "bootstrap":
-        blocos = math.ceil(dias / BLOCO)
-        inicio = rng.integers(0, len(r), size=(n, blocos), dtype=np.int32)
-        idx = (inicio[:, :, None] + np.arange(BLOCO, dtype=np.int32)[None, None, :]) % len(r)  # circular
-        return r[idx.reshape(n, -1)[:, :dias]].astype(np.float32)
+        return r[_indices_bootstrap(len(r), dias, n, rng)].astype(np.float32)
     lr = np.log1p(r)
     mu, sd = lr.mean(), lr.std(ddof=1)
     if metodo == "t":
@@ -79,7 +85,16 @@ def simular_carteira(
     inflacao: float = 0.0,
     taxa_livre_risco: float | None = None,
     semente: int | None = 42,
+    proventos: str = "reinvestir",
+    meta_tipo: str = "patrimonio",
 ) -> dict:
+    """proventos: "reinvestir" (retorno total) ou "sacar" (o patrimônio cresce só pelo preço; o provento é renda).
+    meta_tipo: "patrimonio" (valor final) ou "renda" (renda mensal média dos últimos 12 meses do horizonte)."""
+    if proventos not in ("reinvestir", "sacar"):
+        raise ValueError("proventos deve ser 'reinvestir' ou 'sacar'.")
+    if meta_tipo not in ("patrimonio", "renda"):
+        raise ValueError("meta_tipo deve ser 'patrimonio' ou 'renda'.")
+    sacar = proventos == "sacar"
     tickers = list(dict.fromkeys(t.strip().upper().replace(".SA", "") for t in tickers if t.strip()))
     if not tickers:
         raise ValueError("Informe pelo menos um ativo.")
@@ -95,30 +110,52 @@ def simular_carteira(
 
     R_df, series, dias_ano = retornos_alinhados(tickers, periodo)
     exigir_historico(R_df, tickers, series, 120)
-    r = R_df.to_numpy() @ w  # carteira rebalanceada aos pesos-alvo
+    r = R_df.to_numpy() @ w  # carteira rebalanceada aos pesos-alvo (retorno total)
+    d = proventos_alinhados(tickers, series, R_df).to_numpy() @ w  # parte do retorno que veio de proventos
 
     meses = max(1, round(anos * 12))
     dpm = dias_ano / 12
     dias = math.ceil(meses * dpm)
     n = int(min(simulacoes, MAX_PONTOS // dias, 20_000))
     rng = np.random.default_rng(semente)
-    sim = _gerar(r, dias, n, metodo, rng)
-
-    # fator de crescimento de cada mês (produto dos retornos diários do mês)
     limites = np.round(np.arange(meses + 1) * dpm).astype(int)
-    acum = np.cumsum(np.log1p(sim), axis=1, dtype=np.float64)
-    del sim
-    acum = np.concatenate([np.zeros((n, 1)), acum], axis=1)
-    G = np.exp(acum[:, limites[1:]] - acum[:, limites[:-1]])  # (n, meses)
-    del acum
+
+    def por_mes(diario: np.ndarray) -> np.ndarray:
+        """Soma de log(1 + retorno) de cada mês → fator de crescimento mensal (n, meses)."""
+        acum = np.concatenate([np.zeros((n, 1)), np.cumsum(np.log1p(diario), axis=1, dtype=np.float64)], axis=1)
+        return np.exp(acum[:, limites[1:]] - acum[:, limites[:-1]])
+
+    if metodo == "bootstrap":
+        idx = _indices_bootstrap(len(r), dias, n, rng)
+        sim, sim_d = r[idx].astype(np.float32), d[idx].astype(np.float32)
+        del idx
+    else:
+        sim, sim_d = _gerar(r, dias, n, metodo, rng), np.full((1, dias), d.mean(), np.float32)
+    G_total = por_mes(sim)
+    G = por_mes(sim - sim_d) if sacar else G_total  # sacando, o patrimônio cresce só pelo preço
+    # rendimento em proventos de cada mês, sobre o patrimônio do início do mês
+    acum_d = np.concatenate([np.zeros((sim_d.shape[0], 1)), np.cumsum(sim_d, axis=1, dtype=np.float64)], axis=1)
+    Y = np.broadcast_to(acum_d[:, limites[1:]] - acum_d[:, limites[:-1]], (n, meses))
+    del sim, sim_d, acum_d
 
     # Tudo em reais de hoje: com inflação > 0 o crescimento é descontado mês a mês e o aporte é corrigido
     # pela inflação (aporte real constante). Com inflação 0, os valores são nominais.
-    G = G / (1 + inflacao) ** (1 / 12)
-    V = np.empty((n, meses + 1))
-    V[:, 0] = valor_inicial
+    deflator = (1 + inflacao) ** (1 / 12)
+    G = G / deflator
+    G_total = G_total / deflator
+    # V = V0·I + aporte·B para os mesmos sorteios (I: crescimento acumulado; B: aportes de 1 real acumulados)
+    I = np.ones((n, meses + 1))
+    B = np.zeros((n, meses + 1))
     for m in range(meses):
-        V[:, m + 1] = V[:, m] * G[:, m] + aporte_mensal
+        I[:, m + 1] = I[:, m] * G[:, m]
+        B[:, m + 1] = B[:, m] * G[:, m] + 1
+    V = valor_inicial * I + aporte_mensal * B
+    renda = V[:, :-1] * Y  # proventos de cada mês (n, meses), em reais de hoje se houver inflação
+    jan = np.minimum(np.arange(1, meses + 1), 12)
+    c = np.concatenate([np.zeros((n, 1)), np.cumsum(renda, axis=1)], axis=1)
+    renda_12m = (c[:, 1:] - c[:, np.arange(1, meses + 1) - jan]) / jan  # média mensal dos últimos 12 meses
+    recebido = renda.sum(axis=1)
+
     investido = valor_inicial + aporte_mensal * np.arange(meses + 1)
     rf_m = ((1 + rf) / (1 + inflacao)) ** (1 / 12) - 1
     renda_fixa = np.empty(meses + 1)
@@ -126,11 +163,14 @@ def simular_carteira(
     for m in range(meses):
         renda_fixa[m + 1] = renda_fixa[m] * (1 + rf_m) + aporte_mensal
     final = V[:, -1]
-    indice = np.concatenate([np.ones((n, 1)), np.cumprod(G, axis=1)], axis=1)  # retorno ponderado no tempo
+    # sacando, o resultado inclui o que foi recebido em proventos (somado, sem render)
+    resultado = final + recebido if sacar else final
+    indice = np.concatenate([np.ones((n, 1)), np.cumprod(G_total, axis=1)], axis=1)  # retorno total ponderado no tempo
     cagr = indice[:, -1] ** (12 / meses) - 1
-    dd = _mdd(indice)
-    q5 = np.percentile(final, 5)
+    dd = _mdd(I)
+    q5 = np.percentile(resultado, 5)
     r2 = lambda v: round(float(v), 2)
+    pct = lambda v: {f"p{p}": r2(x) for p, x in zip(PERCENTIS, np.percentile(v, PERCENTIS))}
 
     out = {
         "parametros": {
@@ -141,6 +181,8 @@ def simular_carteira(
             "dias_ano": dias_ano, "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"),
             "dias_historico": len(R_df),
             "retorno_hist_anual": round(float((1 + r).prod() ** (dias_ano / len(r)) - 1) * 100, 2),
+            "dy_hist_anual": round(float(d.mean() * dias_ano) * 100, 2),
+            "proventos": proventos,
             "vol_hist_anual": round(float(r.std(ddof=1) * math.sqrt(dias_ano)) * 100, 2),
         },
         "datas": _meses(meses),
@@ -153,39 +195,60 @@ def simular_carteira(
             "media": r2(final.mean()),
             "investido": r2(investido[-1]),
             "renda_fixa": r2(renda_fixa[-1]),
-            "prob_perda": r2((final < investido[-1]).mean() * 100),
-            "prob_superar_renda_fixa": r2((final > renda_fixa[-1]).mean() * 100),
+            # com saque, as comparações usam patrimônio + proventos recebidos
+            "prob_perda": r2((resultado < investido[-1]).mean() * 100),
+            "prob_superar_renda_fixa": r2((resultado > renda_fixa[-1]).mean() * 100),
             # perda frente ao total aportado no pior cenário de 5% (0 = mesmo esse cenário termina no lucro)
             "perda_95": r2(max(0.0, investido[-1] - q5)),
-            "perda_media_5_piores": r2(max(0.0, investido[-1] - final[final <= q5].mean())),
+            "perda_media_5_piores": r2(max(0.0, investido[-1] - resultado[resultado <= q5].mean())),
             "cagr": {f"p{p}": r2(v * 100) for p, v in zip(PERCENTIS, np.percentile(cagr, PERCENTIS))},
             "max_drawdown": {"p50": r2(np.percentile(dd, 50) * 100), "p95": r2(np.percentile(dd, 5) * 100)},
         },
         "histograma": _hist(final),
+        "renda": {
+            # renda mensal média dos últimos 12 meses, mês a mês (o primeiro ponto é o mês 1)
+            "bandas": _pct(np.concatenate([renda_12m[:, :1], renda_12m], axis=1)),
+            "primeiro_ano": pct(renda_12m[:, min(11, meses - 1)]),
+            "final": pct(renda_12m[:, -1]),
+            "recebido": pct(recebido),
+            "resultado_com_recebido": pct(resultado) if sacar else None,
+            # renda anual no fim sobre o total aportado
+            "yield_on_cost": r2(np.median(renda_12m[:, -1]) * 12 / investido[-1] * 100) if investido[-1] else None,
+        },
     }
 
     if meta:
-        # V_final = V0·A + aporte·B (linear no aporte para os mesmos sorteios) → aporte necessário por bisseção
-        A = indice[:, -1]
-        B = np.zeros(n)
-        for m in range(meses):  # aporte do fim do mês m+1 cresce pelos meses seguintes
-            B += indice[:, -1] / indice[:, m + 1]
+        # alvo linear em V0 e no aporte para os mesmos sorteios: alvo = V0·A + aporte·Bf → aporte necessário por bisseção
+        if meta_tipo == "renda":
+            ult = slice(max(0, meses - 12), meses)
+            A = (I[:, ult] * Y[:, ult]).mean(axis=1)
+            Bf = (B[:, ult] * Y[:, ult]).mean(axis=1)
+            serie, alvo_final = np.concatenate([renda_12m[:, :1], renda_12m], axis=1), renda_12m[:, -1]
+        else:
+            A, Bf, serie, alvo_final = I[:, -1], B[:, -1], V, final
 
         def aporte_para(prob):
             q = 100 - prob
             if np.percentile(valor_inicial * A, q) >= meta:
                 return 0.0
+            if not np.percentile(Bf, q) > 0:
+                return None  # carteira sem proventos: nenhum aporte gera renda
             lo, hi = 0.0, max(meta, 1.0)
+            while np.percentile(valor_inicial * A + hi * Bf, q) < meta:
+                hi *= 2
+                if hi > 1e9:
+                    return None
             for _ in range(60):
                 mid = (lo + hi) / 2
-                lo, hi = (lo, mid) if np.percentile(valor_inicial * A + mid * B, q) >= meta else (mid, hi)
+                lo, hi = (lo, mid) if np.percentile(valor_inicial * A + mid * Bf, q) >= meta else (mid, hi)
             return r2(hi)
 
-        atingiu = V >= meta
+        atingiu = serie >= meta
         primeiro = np.where(atingiu.any(axis=1), atingiu.argmax(axis=1), -1)
         out["meta"] = {
             "valor": meta,
-            "prob": r2((final >= meta).mean() * 100),
+            "tipo": meta_tipo,
+            "prob": r2((alvo_final >= meta).mean() * 100),
             "prob_por_ano": [{"ano": a, "prob": r2(atingiu[:, :min(a * 12, meses) + 1].any(axis=1).mean() * 100)}
                              for a in range(1, math.ceil(meses / 12) + 1)],
             # mediana do mês em que a meta é atingida pela primeira vez (se mais da metade chega lá)

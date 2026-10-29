@@ -281,6 +281,7 @@ class PedidoCarteira(BaseModel):
                                           description="Objetivos de otimização; se vazio, usa os da filosofia")
     periodo: Literal["1y", "2y", "5y", "10y"] = Field("2y", description="Janela histórica dos retornos")
     taxa_livre_risco: float | None = Field(None, description="Taxa livre de risco anual (0.14 = 14%). Padrão: B3_TAXA_LIVRE_RISCO")
+    dy_min: float | None = Field(None, ge=0, le=50, examples=[8], description="Dividend yield mínimo da carteira (% a.a. dos últimos 12 meses); restrição em todas as carteiras otimizadas")
 
 
 @app.get("/api/carteira/opcoes", tags=["Carteira"], summary="Indicadores e filosofias disponíveis")
@@ -311,7 +312,9 @@ class PedidoMCCarteira(BaseModel):
     simulacoes: int = Field(5000, ge=100, le=20000)
     metodo: Literal["bootstrap", "normal", "t"] = "bootstrap"
     periodo: Literal["2y", "5y", "10y", "max"] = Field("5y", description="Histórico usado para calibrar")
-    meta: float | None = Field(None, gt=0, examples=[100000], description="Patrimônio-alvo (em reais de hoje se houver inflação)")
+    meta: float | None = Field(None, gt=0, examples=[100000], description="Patrimônio-alvo ou renda mensal-alvo (ver meta_tipo), em reais de hoje se houver inflação")
+    meta_tipo: Literal["patrimonio", "renda"] = Field("patrimonio", description="patrimonio = valor final; renda = renda mensal média dos últimos 12 meses do horizonte")
+    proventos: Literal["reinvestir", "sacar"] = Field("reinvestir", description="reinvestir = retorno total; sacar = o patrimônio cresce só pelo preço e os proventos viram renda")
     inflacao: float = Field(0.0, ge=0, le=0.5, description="Inflação anual para mostrar valores reais (0.045 = 4,5%)")
     taxa_livre_risco: float | None = Field(None, description="Renda fixa de comparação (padrão: B3_TAXA_LIVRE_RISCO)")
     semente: int | None = Field(42, description="Semente do gerador (mesma semente = mesmo resultado)")
@@ -373,6 +376,19 @@ def cotacoes(tickers: str = Query(..., examples=["HGLG11,BOVA11,IVVB11"])):
             out[t.upper()] = yahoo.cotacao(t)
         except Exception as e:
             out[t.upper()] = {"erro": str(e)}
+    return out
+
+
+@app.get("/api/tempo-real/proventos", tags=["Tempo real"], summary="Proventos dos últimos 12 meses de vários ativos")
+def proventos_tempo_real(tickers: str = Query(..., examples=["MXRF11,PETR4,IVVB11"])):
+    """Proventos por cota (data ex e valor) pagos nos últimos 12 meses, direto do Yahoo — vale para ações, FIIs e
+    ETFs (cripto volta vazia). Usado pelo Home Broker para o calendário de renda."""
+    out = {}
+    for t in [t.strip().upper() for t in tickers.split(",") if t.strip()][:30]:
+        try:
+            out[t] = yahoo.proventos(t)
+        except Exception as e:
+            out[t] = {"erro": str(e)}
     return out
 
 

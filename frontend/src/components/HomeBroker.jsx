@@ -3,7 +3,7 @@ import { api } from '../api.js'
 import { carregar, limpar, novaCarteira, salvar } from '../lib/broker.js'
 import { fmt, signClass, signed } from '../format.js'
 import BuscaAtivo from './BuscaAtivo.jsx'
-import { MultiLineChart } from './Charts.jsx'
+import { BarChart, MultiLineChart } from './Charts.jsx'
 import { TITULOS } from './live/comum.jsx'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
@@ -25,6 +25,74 @@ const EXEMPLO = [
   { ticker: 'BTC-BRL', quantidade: 0.0012, preco_medio: 450000 },
 ]
 const qtdFmt = (q) => (Number.isInteger(q) ? fmt.int(q) : fmt.num(q, q < 1 ? 6 : 4))
+
+// últimos 12 meses, do mais antigo ao atual, no formato AAAA-MM
+const ultimos12 = () => {
+  const d = new Date()
+  return Array.from({ length: 12 }, (_, i) => new Date(d.getFullYear(), d.getMonth() - 11 + i, 1))
+    .map((m) => `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`)
+}
+
+function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda }) {
+  const meses = ultimos12()
+  const porMes = meses.map((m) => ({
+    mes: `${m}-01`,
+    valor: linhas.reduce((a, l) => a + (Array.isArray(provs[l.ticker]) ? provs[l.ticker].filter((p) => p.data.startsWith(m)).reduce((x, p) => x + p.valor * l.quantidade, 0) : 0), 0),
+  }))
+  const pagadores = linhas.filter((l) => l.prov12 > 0).sort((a, b) => b.prov12 * b.quantidade - a.prov12 * a.quantidade)
+  const total12 = porMes.reduce((a, m) => a + m.valor, 0)
+  const meta = Number(metaRenda) || 0
+  const falta = Math.max(0, meta - tot.renda)
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+        <h2 style={{ margin: 0 }}>Proventos</h2>
+        <label className="field" style={{ marginBottom: 0 }}>Meta de renda (R$/mês)
+          <input type="number" min="0" step="100" placeholder="sem meta" value={metaRenda ?? ''} onChange={(e) => setMetaRenda(e.target.value === '' ? null : Number(e.target.value))} />
+        </label>
+      </div>
+      {meta > 0 && (
+        <div style={{ margin: '10px 0 4px' }}>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 4 }}>
+            <b className="num">{fmt.brl(tot.renda)}</b> de <b className="num">{fmt.brl(meta)}</b>/mês ({fmt.pct(Math.min(100, (tot.renda / meta) * 100), 0)})
+            {falta > 0 && tot.dy > 0 && <> · faltam {fmt.brl(falta)}/mês ≈ <b className="num">{fmt.brl((falta * 12) / (tot.dy / 100))}</b> investidos ao DY atual da carteira ({fmt.pct(tot.dy)})</>}
+            {falta === 0 && ' · meta atingida'}
+          </div>
+          <div className="stack" aria-hidden="true"><div style={{ width: `${Math.min(100, (tot.renda / meta) * 100)}%`, background: 'var(--series-3)' }} /></div>
+        </div>
+      )}
+      <div className="grid two" style={{ marginTop: 12 }}>
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Recebido por mês nos últimos 12 meses · com as quantidades de hoje</div>
+          <BarChart data={total12 > 0 ? porMes : []} x="mes" y="valor" format={(v) => fmt.num(v, 2)} />
+          <div className="muted" style={{ fontSize: 13 }}>Total 12 meses: <b className="num">{fmt.brl(total12)}</b> · média {fmt.brl(total12 / 12)}/mês</div>
+        </div>
+        <div className="table-wrap" style={{ border: 0 }}>
+          <table>
+            <thead><tr><th className="txt">Ativo</th><th title="Pagamentos nos últimos 12 meses">Pagam.</th><th>Último (R$/cota)</th><th>Renda 12m</th><th title="Proventos de 12 meses ÷ preço médio">Yield on cost</th></tr></thead>
+            <tbody>
+              {pagadores.map((l) => {
+                const lista = Array.isArray(provs[l.ticker]) ? provs[l.ticker] : []
+                const ult = lista[lista.length - 1]
+                return (
+                  <tr key={l.ticker} style={{ cursor: 'default' }}>
+                    <td className="txt"><span className="dot" style={{ background: cor(l.i) }} />{l.ticker}</td>
+                    <td className="num">{lista.length || '—'}</td>
+                    <td className="num">{ult ? <>{fmt.num(ult.valor, 4)} <span className="muted">{fmt.date(ult.data)}</span></> : '—'}</td>
+                    <td className="num">{fmt.brl(l.prov12 * l.quantidade)}</td>
+                    <td className="num">{l.preco_medio ? fmt.pct((l.prov12 / l.preco_medio) * 100) : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {!pagadores.length && <div className="empty">Nenhum ativo da carteira pagou proventos nos últimos 12 meses.</div>}
+        </div>
+      </div>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Proventos por data ex (Yahoo Finance), brutos de imposto. Yield on cost compara a renda com o que você pagou; DY 12m, com o preço de hoje.</p>
+    </div>
+  )
+}
 
 function Kpi({ label, value, sub, className = '' }) {
   return (
@@ -73,6 +141,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
   const [estado, setEstado] = useState(carregar)
   const [cot, setCot] = useState({})
   const [info, setInfo] = useState({})
+  const [provs, setProvs] = useState({})
   const [atualizado, setAtualizado] = useState(null)
   const [auto, setAuto] = useState(true)
   const [tick, setTick] = useState(0)
@@ -110,6 +179,13 @@ export default function HomeBroker({ onOpen, onSimular }) {
     }).catch(() => {})
   }, [tickers.join(',')])
 
+  // proventos por cota dos últimos 12 meses (Yahoo): ações, FIIs e ETFs
+  useEffect(() => {
+    const pagaveis = tickers.filter((t) => !/-(BRL|USD)$/.test(t))
+    if (!pagaveis.length) return
+    api.proventosRecentes(pagaveis).then(setProvs).catch(() => {})
+  }, [tickers.join(',')])
+
   const [serie, erroSerie] = useEvolucao(posicoes, periodo, tick)
 
   const linhas = useMemo(() => posicoes.map((p, i) => {
@@ -120,15 +196,17 @@ export default function HomeBroker({ onOpen, onSimular }) {
     const custo = p.preco_medio * p.quantidade
     const ant = q.fechamento_anterior
     const varDia = preco != null && ant ? (preco - ant) * p.quantidade : null
-    const prov12 = d.tipo === 'CRIPTO' ? 0 : d.proventos_12m
+    const yh = provs[p.ticker]?.length ? provs[p.ticker].reduce((a, x) => a + x.valor, 0) : null // sem dados no Yahoo: usa a base
+    const prov12 = d.tipo === 'CRIPTO' || /-(BRL|USD)$/.test(p.ticker) ? 0 : (yh ?? d.proventos_12m)
     return {
       ...p, i, preco, valor, custo, nome: q.nome || d.nome_pregao || d.razao_social, erro: q.erro,
       var_pct: q.variacao_pct, var_dia: varDia, resultado: valor != null && custo ? valor - custo : null,
       resultado_pct: valor != null && custo ? (valor / custo - 1) * 100 : null,
       tipo: d.tipo || (/-(BRL|USD)$/.test(p.ticker) ? 'CRIPTO' : null), codigo: d.codigo,
-      dy: d.tipo === 'CRIPTO' ? null : d.dividend_yield, renda_mes: prov12 ? (prov12 * p.quantidade) / 12 : null,
+      dy: prov12 && preco ? (prov12 / preco) * 100 : d.tipo === 'CRIPTO' ? null : d.dividend_yield, prov12,
+      renda_mes: prov12 ? (prov12 * p.quantidade) / 12 : null, yoc: prov12 && p.preco_medio ? (prov12 / p.preco_medio) * 100 : null,
     }
-  }), [posicoes, cot, info])
+  }), [posicoes, cot, info, provs])
 
   const tot = useMemo(() => {
     const soma = (k) => linhas.reduce((a, l) => a + (Number.isFinite(l[k]) ? l[k] : 0), 0)
@@ -303,6 +381,11 @@ export default function HomeBroker({ onOpen, onSimular }) {
         </div>
       </div>
 
+      {posicoes.length > 0 && (
+        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda}
+          setMetaRenda={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, meta_renda: v } : c)) }))} />
+      )}
+
       <div className="card">
         <form className="filters" onSubmit={adicionar} style={{ marginBottom: 8 }}>
           <BuscaAtivo onAdd={escolherNovo} label="Adicionar posição" width={240} />
@@ -317,7 +400,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
               <tr>
                 {th('ticker', 'Ativo', 'txt')}{th('quantidade', 'Qtd.')}{th('preco_medio', 'Preço médio')}{th('preco', 'Preço')}
                 {th('var_pct', 'Dia %')}{th('var_dia', 'Dia R$')}{th('valor', 'Valor')}{th('peso', 'Peso')}
-                {th('resultado', 'Resultado')}{th('resultado_pct', 'Result. %')}{th('dy', 'DY 12m')}{th('renda_mes', 'Renda/mês')}
+                {th('resultado', 'Resultado')}{th('resultado_pct', 'Result. %')}{th('dy', 'DY 12m')}{th('yoc', 'YoC')}{th('renda_mes', 'Renda/mês')}
                 <th aria-label="Remover" />
               </tr>
             </thead>
@@ -345,6 +428,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
                   <td className={`num ${signClass(l.resultado)}`}>{l.resultado != null ? fmt.brl(l.resultado) : '—'}</td>
                   <td className={`num ${signClass(l.resultado_pct)}`}>{signed(l.resultado_pct)}</td>
                   <td className="num">{fmt.pct(l.dy)}</td>
+                  <td className="num" title="Yield on cost: proventos de 12 meses ÷ preço médio">{fmt.pct(l.yoc)}</td>
                   <td className="num">{l.renda_mes ? fmt.brl(l.renda_mes) : '—'}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <button className="chip" style={{ padding: '0 6px' }} aria-label={`Remover ${l.ticker}`} onClick={() => remover(l.ticker)}>✕</button>
@@ -356,7 +440,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
           {!posicoes.length && <div className="empty">Carteira vazia — adicione a primeira posição acima.</div>}
         </div>
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-          Quantidades fracionárias valem para cripto (ex.: 0,0012 BTC-BRL). Renda estimada = proventos pagos nos últimos 12 meses ÷ 12 (dados da base, sem cripto).
+          Quantidades fracionárias valem para cripto (ex.: 0,0012 BTC-BRL). Renda estimada = proventos pagos nos últimos 12 meses ÷ 12 (Yahoo Finance; sem cripto).
           Somente acompanhamento: não envia ordens.
         </p>
       </div>

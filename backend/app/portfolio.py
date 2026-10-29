@@ -63,7 +63,14 @@ FILOSOFIAS = {
 _CACHE: dict = {}
 
 
-def _serie_total(ticker: str, periodo: str) -> tuple[pd.Series, float, float]:
+def _por_dia(serie: pd.Series) -> pd.Series:
+    idx = serie.index.tz_localize(None) if serie.index.tz is not None else serie.index
+    serie = serie.copy()
+    serie.index = idx.normalize()
+    return serie[~serie.index.duplicated(keep="last")]
+
+
+def _serie_total(ticker: str, periodo: str) -> tuple[pd.Series, float, float, pd.Series]:
     """Índice de retorno total (preço + proventos reinvestidos, base 1), último preço e DY 12m."""
     chave = (ticker, periodo)
     hit = _CACHE.get(chave)
@@ -77,13 +84,11 @@ def _serie_total(ticker: str, periodo: str) -> tuple[pd.Series, float, float]:
     close = hist["Close"].dropna()
     divs = hist["Dividends"].reindex(close.index).fillna(0) if "Dividends" in hist else 0 * close
     ret = ((close + divs) / close.shift(1)).fillna(1)
-    indice = ret.cumprod()
-    idx = indice.index.tz_localize(None) if indice.index.tz is not None else indice.index
-    indice.index = idx.normalize()
-    indice = indice[~indice.index.duplicated(keep="last")]
+    indice, so_preco = _por_dia(ret.cumprod()), _por_dia(close / close.iloc[0])
     ultimo = close.index[-1]
     dy = float(divs[divs.index >= ultimo - pd.Timedelta(days=365)].sum()) / float(close.iloc[-1]) * 100
-    out = (indice.rename(ticker), float(close.iloc[-1]), dy)
+    # (índice de retorno total, último preço, DY 12m, índice só de preço)
+    out = (indice.rename(ticker), float(close.iloc[-1]), dy, so_preco.rename(ticker))
     _CACHE[chave] = (time.time(), out)
     return out
 
@@ -94,17 +99,28 @@ def retornos_alinhados(tickers: list[str], periodo: str) -> tuple[pd.DataFrame, 
     with ThreadPoolExecutor(max_workers=6) as pool:
         series = list(pool.map(lambda t: _serie_total(t, periodo), tickers))
     so_cripto = all(eh_cripto(t) for t in tickers)
-    bolsa = [s[0] for t, s in zip(tickers, series) if not eh_cripto(t)]
+    R_df = _alinhar(tickers, [s[0] for s in series])
+    return R_df, series, 365 if so_cripto else DIAS
+
+
+def _alinhar(tickers: list[str], indices: list[pd.Series]) -> pd.DataFrame:
+    bolsa = [s for t, s in zip(tickers, indices) if not eh_cripto(t)]
     datas = sorted(set().union(*(s.index for s in bolsa))) if bolsa else None
     precos = []
-    for s in series:
-        ind = s[0]
+    for ind in indices:
         if datas is not None:
             ind = ind.reindex(ind.index.union(datas)).ffill().reindex(datas)
         precos.append(ind)
     P = pd.concat(precos, axis=1).dropna()
-    R_df = P.pct_change().dropna()
-    return R_df, series, 365 if so_cripto else DIAS
+    return P.pct_change().dropna()
+
+
+def proventos_alinhados(tickers: list[str], series: list, R_df: pd.DataFrame) -> pd.DataFrame:
+    """Rendimento diário em proventos de cada ativo (provento ÷ preço da véspera), nas mesmas datas de R_df:
+    é a diferença entre o retorno total e o retorno só de preço."""
+    R_preco = _alinhar(tickers, [s[3] for s in series]).reindex(R_df.index).fillna(0)
+    D = R_df - R_preco.to_numpy()
+    return D.where(D > 1e-7, 0.0)  # resíduo de ponto flutuante não é provento
 
 
 def exigir_historico(R_df: pd.DataFrame, tickers: list[str], series: list, minimo: int) -> None:
@@ -182,9 +198,9 @@ def _objetivo(nome: str, R, mu, cov, dy, rf, DIAS: int = DIAS):
     return fns[nome]
 
 
-def _otimizar(fn, n, lo, hi, seed=0):
+def _otimizar(fn, n, lo, hi, seed=0, extra=()):
     rng = np.random.default_rng(seed)
-    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1}]
+    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1}, *extra]
     bounds = [(lo, hi)] * n
     inicios = [np.full(n, 1 / n)] + [rng.dirichlet(np.ones(n)) for _ in range(15)]
     melhor = None
@@ -203,12 +219,12 @@ def _otimizar(fn, n, lo, hi, seed=0):
     return w / w.sum()
 
 
-def fronteira(mu, cov, lo, hi, pontos=30):
+def fronteira(mu, cov, lo, hi, pontos=30, extra=()):
     n = len(mu)
-    cons_base = [{"type": "eq", "fun": lambda w: w.sum() - 1}]
+    cons_base = [{"type": "eq", "fun": lambda w: w.sum() - 1}, *extra]
     # faixa de retornos atingível respeitando os limites de peso
-    w_min = _otimizar(lambda w: w @ mu, n, lo, hi)
-    w_max = _otimizar(lambda w: -(w @ mu), n, lo, hi)
+    w_min = _otimizar(lambda w: w @ mu, n, lo, hi, extra=extra)
+    w_max = _otimizar(lambda w: -(w @ mu), n, lo, hi, extra=extra)
     r0, r1 = float(w_min @ mu), float(w_max @ mu)
     out = []
     for alvo in np.linspace(r0, r1, pontos):
@@ -287,7 +303,9 @@ def otimizar(
     filosofia: str | None = None,
     periodo: str = "2y",
     taxa_livre_risco: float | None = None,
+    dy_min: float | None = None,
 ) -> dict:
+    """dy_min: dividend yield mínimo da carteira em % a.a. (restrição em todas as carteiras otimizadas)."""
     tickers = list(dict.fromkeys(t.strip().upper().replace(".SA", "") for t in tickers if t.strip()))
     n = len(tickers)
     if n < 2:
@@ -309,6 +327,15 @@ def otimizar(
     mu = R.mean(axis=0) * dias
     cov = np.cov(R, rowvar=False) * dias
     dy = np.array([s[2] for s in series])
+    extra = ()
+    if dy_min:
+        dy_possivel = float(_otimizar(lambda w: -(w @ dy), n, peso_min, peso_max) @ dy)
+        if dy_possivel < dy_min - 1e-6:
+            raise ValueError(
+                f"Inviável: com esses ativos e limites de peso o maior dividend yield possível é {dy_possivel:.2f}% a.a. "
+                f"(pedido: {dy_min:.2f}%). Reduza o DY mínimo, aumente o peso máximo ou inclua ativos pagadores."
+            )
+        extra = ({"type": "ineq", "fun": lambda w: w @ dy - dy_min},)
 
     # preço atual da cota (tempo real; cai para o último fechamento)
     precos = []
@@ -322,16 +349,19 @@ def otimizar(
     frac = np.array([eh_cripto(t) for t in tickers])
 
     def montar(nome, chave, w, descricao):
+        aloc = alocar(w, precos, valor, peso_max, frac)
+        anual = float(np.array(aloc["valores"]) @ dy / 100)  # DY 12m de cada ativo sobre o valor comprado
+        aloc["renda_anual"], aloc["renda_mensal"] = round(anual, 2), round(anual / 12, 2)
         return {
             "chave": chave, "nome": nome, "descricao": descricao,
             "pesos": dict(zip(tickers, w.round(4).tolist())),
             "metricas": {k: (round(v, 4) if v is not None else None) for k, v in metricas(w, R, dy, rf, dias).items()},
-            "alocacao": alocar(w, precos, valor, peso_max, frac),
+            "alocacao": aloc,
         }
 
     carteiras = []
     for i, ind in enumerate(indicadores):
-        w = _otimizar(_objetivo(ind, R, mu, cov, dy, rf, dias), n, peso_min, peso_max, seed=i)
+        w = _otimizar(_objetivo(ind, R, mu, cov, dy, rf, dias), n, peso_min, peso_max, seed=i, extra=extra)
         carteiras.append(montar(INDICADORES[ind]["nome"], ind, w, INDICADORES[ind]["descricao"]))
     eq = np.full(n, 1 / n)
     iguais = montar("Pesos iguais", "iguais", eq, "Referência: mesmo peso em cada ativo.")
@@ -356,11 +386,11 @@ def otimizar(
 
     return {
         "parametros": {"tickers": tickers, "valor": valor, "peso_min": peso_min, "peso_max": peso_max, "periodo": periodo,
-                       "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores,
+                       "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores, "dy_min": dy_min,
                        "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"), "pregoes": len(R_df), "dias_ano": dias},
         "ativos": ativos,
         "correlacao": {"tickers": tickers, "matriz": np.corrcoef(R, rowvar=False).round(3).tolist()},
         "carteiras": carteiras,
         "pesos_iguais": iguais,
-        "fronteira": fronteira(mu, cov, peso_min, peso_max),
+        "fronteira": fronteira(mu, cov, peso_min, peso_max, extra=extra),
     }

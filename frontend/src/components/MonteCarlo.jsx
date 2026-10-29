@@ -51,10 +51,47 @@ function Pesos({ itens, setItens }) {
   )
 }
 
+function RendaProventos({ r }) {
+  const p = r.parametros, rd = r.renda
+  const sacar = p.proventos === 'sacar'
+  const metaRenda = r.meta?.tipo === 'renda' ? r.meta.valor : null
+  const topo = Math.max(...rd.bandas.p95)
+  const metaVisivel = metaRenda && metaRenda <= topo * 2 // meta muito acima achataria o leque
+  if (!(p.dy_hist_anual > 0)) {
+    return (
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h2 style={{ marginTop: 0 }}>Renda em proventos</h2>
+        <div className="muted">Nenhum ativo da carteira pagou proventos no histórico usado: a renda simulada é zero.</div>
+      </div>
+    )
+  }
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h2 style={{ marginTop: 0 }}>Renda em proventos · {sacar ? 'sacados todo mês' : 'reinvestidos'}</h2>
+      <div className="grid kpis compacto" style={{ marginBottom: 8 }}>
+        <Kpi label="Renda mensal no 1º ano (mediana)" value={fmt.brl(rd.primeiro_ano.p50)} hint={`DY histórico da carteira ${fmt.pct(p.dy_hist_anual)} a.a.`} />
+        <Kpi label={`Renda mensal no ano ${Math.ceil(p.anos)} (mediana)`} value={fmt.brl(rd.final.p50)} hint={`p10 ${fmt.brl(rd.final.p10)} · p90 ${fmt.brl(rd.final.p90)}`} />
+        <Kpi label={sacar ? 'Total sacado em proventos' : 'Total reinvestido em proventos'} value={fmt.brl(rd.recebido.p50)} hint="mediana da soma no horizonte" />
+        <Kpi label="Yield on cost no fim" value={rd.yield_on_cost != null ? fmt.pct(rd.yield_on_cost) : '—'} hint="renda anual ÷ total aportado" />
+      </div>
+      <FanChart datas={r.datas} bandas={rd.bandas} fmtY={brlEixo} label="Leque de percentis da renda mensal" cor="var(--series-3)"
+        refs={metaVisivel ? [{ y: metaRenda, label: `Meta ${fmt.brl(metaRenda)}/mês`, cor: 'var(--series-3)' }] : []} height={260} />
+      {metaRenda && !metaVisivel && <div className="muted" style={{ fontSize: 13 }}>A meta de {fmt.brl(metaRenda)}/mês fica bem acima até dos cenários otimistas (p95 {fmt.brl(topo)}/mês) e foi omitida do gráfico.</div>}
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+        Renda mensal = média dos proventos dos últimos 12 meses (suaviza pagamentos semestrais de ações).
+        {sacar ? ' Sacando, o patrimônio cresce só pela variação de preço; as comparações com o aportado e com a renda fixa somam o patrimônio e o que foi sacado.'
+          : ' Reinvestindo, o provento compra mais cotas e a renda cresce junto com o patrimônio.'} Sem imposto de renda.
+      </p>
+    </div>
+  )
+}
+
 function ResultadoCarteira({ r, meta }) {
   const [verCaminhos, setVerCaminhos] = useState(false)
   const p = r.parametros, f = r.final
   const real = p.valores_reais
+  const sacar = p.proventos === 'sacar'
+  const metaPatrimonio = r.meta?.tipo === 'renda' ? null : meta
   const linhas = [
     { nome: 'Total aportado', valores: r.investido, cor: 'var(--text-muted)', tracejado: true },
     { nome: `Renda fixa ${fmt.pct(p.taxa_livre_risco * 100, 1)} a.a.`, valores: r.renda_fixa, cor: 'var(--series-2)', tracejado: true },
@@ -63,14 +100,15 @@ function ResultadoCarteira({ r, meta }) {
   const refsHist = [
     { x: f.investido, label: 'Aportado', cor: 'var(--text-muted)' },
     { x: f.p50, label: 'Mediana', cor: 'var(--text-primary)' },
-    ...(r.meta ? [{ x: r.meta.valor, label: 'Meta', cor: 'var(--series-3)' }] : []),
+    ...(metaPatrimonio ? [{ x: metaPatrimonio, label: 'Meta', cor: 'var(--series-3)' }] : []),
   ]
   return (
     <>
       <div className="grid kpis compacto">
-        <Kpi label={`Patrimônio mediano em ${p.anos} ano${p.anos > 1 ? 's' : ''}`} value={fmt.brl(f.p50)} hint={`Aportado: ${fmt.brl(f.investido)}`} />
+        <Kpi label={`Patrimônio mediano em ${p.anos} ano${p.anos > 1 ? 's' : ''}`} value={fmt.brl(f.p50)}
+          hint={sacar ? `Aportado: ${fmt.brl(f.investido)} · + ${fmt.brl(r.renda.recebido.p50)} sacados` : `Aportado: ${fmt.brl(f.investido)}`} />
         <Kpi label="Faixa de 90% dos cenários" value={<span style={{ fontSize: 18 }}>{fmt.big(f.p5)} – {fmt.big(f.p95)}</span>} hint="percentis 5 e 95" />
-        <Kpi label="Chance de terminar abaixo do aportado" value={fmt.pct(f.prob_perda, 1)} className={f.prob_perda > 10 ? 'neg' : ''}
+        <Kpi label={sacar ? 'Chance de patrimônio + sacado ficar abaixo do aportado' : 'Chance de terminar abaixo do aportado'} value={fmt.pct(f.prob_perda, 1)} className={f.prob_perda > 10 ? 'neg' : ''}
           hint={f.perda_media_5_piores > 0 ? `Nos 5% piores: perda média de ${fmt.brl(f.perda_media_5_piores)}` : 'Mesmo os 5% piores cenários terminam no lucro'} />
         <Kpi label="Chance de superar a renda fixa" value={fmt.pct(f.prob_superar_renda_fixa, 1)} hint={`Renda fixa no fim: ${fmt.brl(f.renda_fixa)}`} />
         <Kpi label={`Retorno anual${real ? ' real' : ''} (mediana)`} value={signed(f.cagr.p50)} className={signClass(f.cagr.p50)} hint={`p5 ${signed(f.cagr.p5)} · p95 ${signed(f.cagr.p95)}`} />
@@ -79,14 +117,15 @@ function ResultadoCarteira({ r, meta }) {
 
       {r.meta && (
         <div className="card" style={{ marginBottom: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Meta de {fmt.brl(r.meta.valor)}{real ? ' (em reais de hoje)' : ''}</h2>
+          <h2 style={{ marginTop: 0 }}>{r.meta.tipo === 'renda' ? `Meta de renda de ${fmt.brl(r.meta.valor)}/mês` : `Meta de ${fmt.brl(r.meta.valor)}`}{real ? ' (em reais de hoje)' : ''}</h2>
           <div className="grid kpis compacto" style={{ marginBottom: 8 }}>
             <Kpi label={`Chance de atingir em ${p.anos} anos`} value={fmt.pct(r.meta.prob, 1)} className={r.meta.prob >= 75 ? 'pos' : r.meta.prob < 50 ? 'neg' : ''} />
             <Kpi label="Tempo mediano até a meta" value={r.meta.meses_mediana != null ? `${Math.floor(r.meta.meses_mediana / 12)}a ${r.meta.meses_mediana % 12}m` : '—'}
-              hint={r.meta.meses_mediana == null ? 'Menos da metade dos cenários chega lá' : 'primeira vez que o patrimônio toca a meta'} />
+              hint={r.meta.meses_mediana == null ? 'Menos da metade dos cenários chega lá'
+                : r.meta.tipo === 'renda' ? 'primeira vez que a renda média de 12 meses toca a meta' : 'primeira vez que o patrimônio toca a meta'} />
             {Object.entries(r.meta.aporte_necessario).map(([prob, v]) => (
-              <Kpi key={prob} label={`Aporte mensal para ${prob}% de chance`} value={fmt.brl(v)}
-                hint={v <= p.aporte_mensal ? 'seu aporte já basta' : `+${fmt.brl(v - p.aporte_mensal)} por mês`} />
+              <Kpi key={prob} label={`Aporte mensal para ${prob}% de chance`} value={v == null ? 'Inalcançável' : fmt.brl(v)}
+                hint={v == null ? 'a carteira quase não paga proventos' : v <= p.aporte_mensal ? 'seu aporte já basta' : `+${fmt.brl(v - p.aporte_mensal)} por mês`} />
             ))}
           </div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>Chance de já ter atingido a meta, ano a ano</div>
@@ -110,8 +149,10 @@ function ResultadoCarteira({ r, meta }) {
           </label>
         </div>
         <FanChart datas={r.datas} bandas={r.bandas} linhas={linhas} fmtY={brlEixo} label="Leque de percentis do patrimônio"
-          refs={meta ? [{ y: meta, label: `Meta ${fmt.big(meta)}`, cor: 'var(--series-3)' }] : []} height={340} />
+          refs={metaPatrimonio ? [{ y: metaPatrimonio, label: `Meta ${fmt.big(metaPatrimonio)}`, cor: 'var(--series-3)' }] : []} height={340} />
       </div>
+
+      <div style={{ marginTop: 16 }}><RendaProventos r={r} /></div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(360px, 100%), 1fr))', marginTop: 16 }}>
         <div className="card">
@@ -134,7 +175,7 @@ function ResultadoCarteira({ r, meta }) {
           <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
             {fmt.int(p.simulacoes)} cenários · {METODOS.find(([k]) => k === p.metodo)?.[1]} · calibrado em {fmt.date(p.inicio)}–{fmt.date(p.fim)}
             ({fmt.int(p.dias_historico)} dias): retorno histórico {signed(p.retorno_hist_anual)} a.a., volatilidade {fmt.pct(p.vol_hist_anual)}.
-            Carteira rebalanceada para os pesos {Object.entries(p.pesos).map(([t, w]) => `${t} ${fmt.pct(w * 100, 0)}`).join(', ')}; aporte no fim de cada mês.
+            Carteira rebalanceada para os pesos {Object.entries(p.pesos).map(([t, w]) => `${t} ${fmt.pct(w * 100, 0)}`).join(', ')}; aporte no fim de cada mês; proventos {sacar ? 'sacados' : 'reinvestidos'}.
           </p>
         </div>
       </div>
@@ -202,6 +243,9 @@ export default function MonteCarlo({ preset }) {
   const [aporte, setAporte] = useState(400)
   const [anos, setAnos] = useState(10)
   const [meta, setMeta] = useState(100000)
+  const [metaTipo, setMetaTipo] = useState('patrimonio')
+  const [metaRenda, setMetaRenda] = useState(3000)
+  const [proventos, setProventos] = useState('reinvestir')
   const [real, setReal] = useState(true)
   const [inflacao, setInflacao] = useState(4.5)
   const [metodo, setMetodo] = useState('bootstrap')
@@ -244,7 +288,8 @@ export default function MonteCarlo({ preset }) {
         const r = await api.mcCarteira({
           tickers: itens.map((x) => x.ticker), pesos: itens.map((x) => Number(x.peso) || 0), valor_inicial: Number(valor),
           aporte_mensal: Number(aporte), anos: Number(anos), simulacoes: Number(sims), metodo, periodo,
-          meta: modo === 'meta' ? Number(meta) : null, inflacao: real ? Number(inflacao) / 100 : 0,
+          meta: modo === 'meta' ? Number(metaTipo === 'renda' ? metaRenda : meta) : null, meta_tipo: metaTipo, proventos,
+          inflacao: real ? Number(inflacao) / 100 : 0,
         })
         setRes({ modo, r })
       }
@@ -293,7 +338,23 @@ export default function MonteCarlo({ preset }) {
               <label className="field">Valor inicial (R$)<input type="number" min="0" value={valor} onChange={(e) => setValor(e.target.value)} /></label>
               <label className="field">Aporte mensal (R$)<input type="number" min="0" value={aporte} onChange={(e) => setAporte(e.target.value)} /></label>
               <label className="field">Anos<input type="number" min="1" max="40" value={anos} onChange={(e) => setAnos(e.target.value)} /></label>
-              {modo === 'meta' && <label className="field">Meta (R$)<input type="number" min="1" step="10000" value={meta} onChange={(e) => setMeta(e.target.value)} /></label>}
+              <label className="field">Proventos
+                <select value={proventos} onChange={(e) => setProventos(e.target.value)}>
+                  <option value="reinvestir">Reinvestir</option>
+                  <option value="sacar">Sacar (viram renda)</option>
+                </select>
+              </label>
+              {modo === 'meta' && (
+                <label className="field">Tipo de meta
+                  <select value={metaTipo} onChange={(e) => setMetaTipo(e.target.value)}>
+                    <option value="patrimonio">Patrimônio</option>
+                    <option value="renda">Renda mensal</option>
+                  </select>
+                </label>
+              )}
+              {modo === 'meta' && (metaTipo === 'renda'
+                ? <label className="field">Renda desejada (R$/mês)<input type="number" min="1" step="500" value={metaRenda} onChange={(e) => setMetaRenda(e.target.value)} /></label>
+                : <label className="field">Meta (R$)<input type="number" min="1" step="10000" value={meta} onChange={(e) => setMeta(e.target.value)} /></label>)}
               <label className="field">
                 <span><input type="checkbox" checked={real} onChange={(e) => setReal(e.target.checked)} /> Descontar inflação (% a.a.)</span>
                 <input type="number" step="0.5" min="0" value={inflacao} disabled={!real} onChange={(e) => setInflacao(e.target.value)} />
