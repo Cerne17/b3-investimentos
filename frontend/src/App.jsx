@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
 import Carteira from './components/Carteira.jsx'
+import ComparadorFIIs from './components/ComparadorFIIs.jsx'
 import Detail from './components/Detail.jsx'
+import Guia, { CHAVE_GUIA } from './components/Guia.jsx'
 import Docs from './components/Docs.jsx'
 import HomeBroker from './components/HomeBroker.jsx'
 import MonteCarlo from './components/MonteCarlo.jsx'
@@ -12,7 +14,7 @@ import Screener from './components/Screener.jsx'
 // navegação em dois níveis: seções no topo e, nos grupos, as abas da seção logo abaixo
 const NAV = [
   { k: 'geral', l: 'Visão geral' },
-  { k: 'mercado', l: 'Mercado', itens: [['acoes', 'Ações'], ['fiis', 'FIIs'], ['etfs', 'ETFs'], ['criptos', 'Cripto']] },
+  { k: 'mercado', l: 'Mercado', itens: [['acoes', 'Ações'], ['fiis', 'FIIs'], ['etfs', 'ETFs'], ['criptos', 'Cripto'], ['comparafiis', 'Comparar FIIs']] },
   { k: 'investir', l: 'Investir', itens: [['carteira', 'Markowitz'], ['montecarlo', 'Monte Carlo'], ['broker', 'Home Broker']] },
   { k: 'live', l: 'Tempo real' },
   { k: 'docs', l: 'API & MCP' },
@@ -47,6 +49,8 @@ export default function App() {
   const [ultima, setUltima] = useState({})
   const [mcPreset, setMcPreset] = useState(null) // carteira levada do Markowitz/Home Broker para o Monte Carlo
   // dark ("heartwood core") é o padrão da marca; light ("sapwood") é opcional
+  // primeiro acesso: guia de primeiros passos (não abre em links compartilhados de carteira)
+  const [guia, setGuia] = useState(() => { try { return !localStorage.getItem(CHAVE_GUIA) && !window.location.hash.includes('?c=') } catch { return false } })
   const [tema, setTema] = useState(() => { try { return localStorage.getItem('tema') || 'dark' } catch { return 'dark' } })
 
   useEffect(() => {
@@ -101,6 +105,7 @@ export default function App() {
           <span className="menu-icone" aria-hidden="true">{menu ? '✕' : '☰'}</span>
           <span className="sr-only">Menu</span>
         </button>
+        <button className="icon-btn" onClick={() => setGuia(true)} aria-label="Guia de primeiros passos" title="Guia de primeiros passos">?</button>
         <button className="icon-btn" onClick={() => setTema(escuro ? 'light' : 'dark')} aria-label="Alternar tema">{escuro ? '☀' : '☾'}</button>
       </header>
       {menu && (
@@ -132,8 +137,10 @@ export default function App() {
         </nav>
       )}
       <main>
+        {guia && <Guia onIr={ir} onFechar={() => setGuia(false)} />}
         {tab === 'geral' && <Overview onOpen={abrir} />}
         {['acoes', 'fiis', 'etfs', 'criptos'].includes(tab) && <Screener tipo={tab} onOpen={abrir} extraCols={extras[tab]} />}
+        {tab === 'comparafiis' && <ComparadorFIIs onOpen={abrir} />}
         {tab === 'carteira' && <Carteira onSimular={simular} onBroker={() => ir('broker')} />}
         {tab === 'montecarlo' && <MonteCarlo preset={mcPreset} />}
         {tab === 'broker' && <HomeBroker onOpen={abrir} onSimular={simular} />}

@@ -45,9 +45,12 @@ def comparar(tickers: list[str]) -> dict:
             divs.index = idx
             fim_mes = close.resample("ME").last()
             dy12 = divs.resample("ME").sum().rolling(12).sum() / fim_mes * 100
+            # VP/cota do mês (ou o último publicado: o informe da CVM sai com ~1 mês de atraso)
+            vps = mensal["vp_cota"].dropna() if not mensal.empty else pd.Series(dtype=float)
             for d, p in fim_mes.items():
                 mes = d.strftime("%Y-%m")
-                vp = mensal["vp_cota"].get(mes) if not mensal.empty and mes in mensal.index else None
+                anteriores = vps[vps.index <= mes]
+                vp = float(anteriores.iloc[-1]) if len(anteriores) and anteriores.index[-1] >= (d - pd.DateOffset(months=3)).strftime("%Y-%m") else None
                 serie[mes] = {"preco": round(float(p), 2), "pvp": round(float(p) / vp, 3) if vp else None,
                               "dy_12m": None if pd.isna(dy12.get(d)) else round(float(dy12[d]), 2)}
         except Exception:

@@ -356,6 +356,7 @@ a:hover { color: var(--accent-hover); }
 .relatorio th { font-size: 11px; text-transform: uppercase; color: #555; }
 .relatorio .pos { color: #13804b; } .relatorio .neg { color: #b42318; }
 .relatorio-acoes { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px; }
+.relatorio .btn:not(.primary) { background: #fff; color: #111; border: 1px solid #bbb; }
 .relatorio-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-top: 16px; }
 .relatorio-kpis div { border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
 .relatorio-kpis span { font-size: 11px; color: #666; text-transform: uppercase; }
@@ -371,3 +372,10 @@ a:hover { color: var(--accent-hover); }
   .relatorio section { break-inside: avoid; }
   @page { margin: 14mm; }
 }
+
+/* guia de primeiros passos (Guia.jsx) */
+.guia-fundo { position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, .55); display: grid; place-items: center; padding: 16px; }
+.guia { max-width: 520px; width: 100%; }
+.guia-pontos { display: flex; gap: 6px; margin: 14px 0; }
+.guia-pontos i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); cursor: pointer; }
+.guia-pontos i.on { background: var(--series-1); }

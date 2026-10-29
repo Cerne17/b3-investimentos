@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       modo:
-        description: "rendafixa, cripto ou completa"
+        description: "rendafixa, fiihist, cripto ou completa"
         default: rendafixa
 
 permissions:
