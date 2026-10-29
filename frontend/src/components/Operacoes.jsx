@@ -88,7 +88,7 @@ export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Operações</h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={() => arquivo.current?.click()} title="Extrato de Negociação ou de Movimentação da Área do Investidor (investidor.b3.com.br), em Excel ou CSV">
+          <button className="btn" onClick={() => arquivo.current?.click()} title="Extrato de Negociação, Movimentação ou Posição da Área do Investidor (investidor.b3.com.br), em Excel ou CSV. Negociação traz o histórico completo; Posição só o que você tem hoje">
             Importar extrato da B3
           </button>
           <input ref={arquivo} type="file" accept=".xlsx,.xls,.csv" hidden onChange={lerB3} />

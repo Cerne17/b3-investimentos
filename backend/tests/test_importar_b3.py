@@ -53,3 +53,28 @@ def test_formato_desconhecido():
     arq = base64.b64encode(pd.DataFrame({"a": [1]}).to_csv(index=False).encode()).decode()
     with pytest.raises(ValueError, match="Formato não reconhecido"):
         importar(arq, "x.csv")
+
+
+def test_extrato_de_posicao(monkeypatch):
+    from app import rendafixa
+    dias = pd.bdate_range("2024-01-01", "2026-10-28")
+    monkeypatch.setattr(rendafixa, "_sgs", lambda nome: pd.Series(0.05, index=dias))
+    monkeypatch.setattr(rendafixa, "_cache", {})
+    fator = (1 + 0.0005 * 1.1) ** int(((dias > pd.Timestamp("2024-03-21"))).sum())  # 110% do CDI desde a emissão
+    acoes = pd.DataFrame([["BBSE3 - BB SEGURIDADE", "XP", "1", "BBSE3", "x", "x", "ON", "x", 3, 3, "-", "-", 41.35, 124.05]],
+                         columns=["Produto", "Instituição", "Conta", "Código de Negociação", "CNPJ da Empresa", "Código ISIN / Distribuição",
+                                  "Tipo", "Escriturador", "Quantidade", "Quantidade Disponível", "Quantidade Indisponível", "Motivo",
+                                  "Preço de Fechamento", "Valor Atualizado"])
+    rf = pd.DataFrame([["CDB - BANCO X", "X", "X", "CDB1", "DI", "REGISTRADO", "21/03/2024", "21/03/2028", 100, fator, 100 * fator],
+                       [None] * 11],
+                      columns=["Produto", "Instituição", "Emissor", "Código", "Indexador", "Tipo de regime", "Data de Emissão",
+                               "Vencimento", "Quantidade", "Preço Atualizado CURVA", "Valor Atualizado CURVA"])
+    b = io.BytesIO()
+    with pd.ExcelWriter(b) as w:
+        acoes.to_excel(w, sheet_name="Acoes", index=False)
+        rf.to_excel(w, sheet_name="Renda Fixa", index=False)
+    r = importar(base64.b64encode(b.getvalue()).decode(), "posicao.xlsx")
+    acao, cdb = r["transacoes"]
+    assert acao["ticker"] == "BBSE3" and acao["quantidade"] == 3 and acao["preco"] == 41.35 and acao["inicial"]
+    assert cdb["ticker"] == "CDI-110" and cdb["data"] == "2024-03-21"
+    assert cdb["quantidade"] * cdb["preco"] == pytest.approx(100)
