@@ -34,7 +34,7 @@ function Logo() {
 }
 
 const tabDaUrl = () => {
-  const h = window.location.hash.slice(1)
+  const h = window.location.hash.slice(1).split('?')[0] // "#broker?c=..." = link de carteira compartilhada
   return TABS.some(([k]) => k === h) ? h : 'geral'
 }
 

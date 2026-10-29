@@ -42,7 +42,7 @@ function OndeAportar({ c, tickers, aporte, qtdAtuais }) {
       {r && (
         <>
           <div className="eyebrow" style={{ marginBottom: 4 }}>Aporte de {fmt.brl(r.aporte)} · só compras</div>
-          <table>
+          <div className="cartoes"><table>
             <thead><tr><th className="txt">Ativo</th><th title="Peso hoje">Hoje</th><th>Alvo</th><th>Comprar</th><th>Valor</th><th title="Peso depois da compra">Depois</th></tr></thead>
             <tbody>
               {r.ativos.map((x) => (
@@ -56,7 +56,7 @@ function OndeAportar({ c, tickers, aporte, qtdAtuais }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
             Usa {fmt.brl(r.usado)}{r.sobra > 0.01 ? ` (sobram ${fmt.brl(r.sobra)})` : ''} · fora do alvo: {r.fora_do_alvo_antes != null ? `${fmt.pct(r.fora_do_alvo_antes, 1)} → ` : ''}{fmt.pct(r.fora_do_alvo_depois, 1)} da carteira.
             {!Object.keys(qtdAtuais).length && ' Sem posições atuais: importe do Home Broker para considerar o que você já tem.'}
@@ -81,7 +81,7 @@ function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker, apo
       <div className="stack" aria-hidden="true">
         {tickers.map((t, i) => (c.pesos[t] > 0 ? <div key={t} style={{ width: `${c.pesos[t] * 100}%`, background: cor(i) }} title={`${t} ${fmt.pct(c.pesos[t] * 100, 1)}`} /> : null))}
       </div>
-      <div className="port-table">
+      <div className="port-table cartoes">
         <table>
           <thead><tr><th className="txt">Ativo</th><th title="Peso ótimo da otimização">Alvo</th><th>Cotas</th><th>Valor</th><th title="Peso real após arredondar para cotas inteiras">Real</th></tr></thead>
           <tbody>

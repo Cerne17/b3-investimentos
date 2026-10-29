@@ -324,3 +324,21 @@ a:hover { color: var(--accent-hover); }
   .subtab.active::after { display: none; }
 }
 @media (max-width: 380px) { .menu-atual span, .menu-atual { max-width: 46vw; } }
+
+/* tabelas como cartões no celular (rótulos vêm de lib/cartoes.js) */
+@media (max-width: 640px) {
+  .cartoes { max-height: none; overflow: visible; background: none; }
+  .cartoes table, .cartoes tbody { display: block; width: 100%; }
+  .cartoes thead { display: none; }
+  .cartoes tr {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; padding: 10px 12px; margin-bottom: 8px;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1);
+  }
+  .cartoes td { display: flex; flex-direction: column; align-items: flex-start; padding: 0; border: 0; text-align: left; min-width: 0; white-space: normal; }
+  .cartoes td::before { content: attr(data-label); font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .cartoes td:not([data-label])::before, .cartoes td[data-label=""]::before { content: none; }
+  .cartoes td:first-child { grid-column: 1 / -1; font-size: 15px; }
+  .cartoes td:first-child::before { content: none; }
+  .cartoes td:last-child:not([data-label]) { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; gap: 6px; }
+  .cartoes .hb-edit { width: 100%; }
+}

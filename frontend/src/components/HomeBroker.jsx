@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { carregar, novaCarteira, salvar } from '../lib/broker.js'
+import { carteiraDoLink, limparLink, linkDaCarteira } from '../lib/compartilhar.js'
 import { fmt, signClass, signed } from '../format.js'
 import Desempenho, { ImpostoVendas, useDesempenho } from './Desempenho.jsx'
 import Operacoes from './Operacoes.jsx'
+import Alertas from './Alertas.jsx'
 import { BarChart, MultiLineChart } from './Charts.jsx'
 import { TITULOS } from './live/comum.jsx'
 import { ehCripto, ehRendaFixa } from '../lib/ativos.js'
@@ -81,7 +83,7 @@ function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda, transacoes, re
           <BarChart data={total12 > 0 ? porMes : []} x="mes" y="valor" format={(v) => fmt.num(v, 2)} />
           <div className="muted" style={{ fontSize: 13 }}>Total 12 meses: <b className="num">{fmt.brl(total12)}</b> · média {fmt.brl(total12 / 12)}/mês</div>
         </div>
-        <div className="table-wrap" style={{ border: 0 }}>
+        <div className="table-wrap cartoes" style={{ border: 0 }}>
           <table>
             <thead><tr><th className="txt">Ativo</th><th title="Pagamentos nos últimos 12 meses">Pagam.</th><th>Último (R$/cota)</th><th title="Recebido nos últimos 12 meses, pelas cotas que você tinha em cada data ex">Recebido 12m</th><th title="Proventos de 12 meses por cota x cotas de hoje">Renda/ano hoje</th><th title="Proventos de 12 meses ÷ preço médio">Yield on cost</th></tr></thead>
             <tbody>
@@ -168,6 +170,12 @@ export default function HomeBroker({ onOpen, onSimular }) {
   const [periodo, setPeriodo] = useState('1d')
   const [ordem, setOrdem] = useState({ col: 'valor', dir: -1 })
   const arquivo = useRef(null)
+  const [recebida, setRecebida] = useState(null) // carteira vinda de um link compartilhado
+  const [copiado, setCopiado] = useState(null)
+
+  useEffect(() => {
+    carteiraDoLink().then((c) => c && setRecebida(c)).catch(() => setRecebida({ erro: true }))
+  }, [])
 
   const carteira = estado.carteiras.find((c) => c.id === estado.ativa) || estado.carteiras[0]
   const transacoes = carteira?.transacoes || []
@@ -301,10 +309,34 @@ export default function HomeBroker({ onOpen, onSimular }) {
     </th>
   )
 
+  const compartilhar = async () => {
+    const link = await linkDaCarteira(carteira)
+    try { await navigator.clipboard.writeText(link); setCopiado('Link copiado') } catch { window.prompt('Copie o link da carteira:', link); setCopiado(null) }
+    setTimeout(() => setCopiado(null), 3000)
+  }
+  const avisoLink = recebida && (
+    <div className="alert section" style={{ marginBottom: 12 }}>
+      {recebida.erro ? 'Link de carteira inválido ou corrompido.' : (
+        <>
+          Link de carteira compartilhada: <b>{recebida.nome}</b> · {recebida.transacoes.length} operações.
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="btn primary" onClick={() => {
+              const e = novaCarteira(recebida.nome, [], recebida.transacoes)
+              setEstado(recebida.meta_renda ? salvar({ ...e, carteiras: e.carteiras.map((c) => (c.id === e.ativa ? { ...c, meta_renda: recebida.meta_renda } : c)) }) : e)
+              setRecebida(null); limparLink()
+            }}>Importar neste navegador</button>
+            <button className="btn" onClick={() => { setRecebida(null); limparLink() }}>Ignorar</button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+
   if (!carteira) {
     return (
       <>
         <h1>Home Broker</h1>
+        {avisoLink}
         <p className="sub">Acompanhe uma carteira em tempo real: patrimônio, variação do dia, resultado por ativo e renda estimada. As carteiras ficam salvas só neste navegador.</p>
         <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="btn primary" onClick={() => criar('Minha carteira')}>Criar carteira vazia</button>
@@ -334,6 +366,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
           <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />auto</label>
         </div>
       </div>
+      {avisoLink && <div style={{ marginTop: 12 }}>{avisoLink}</div>}
 
       <div className="filters" style={{ marginTop: 12 }}>
         <label className="field">Carteira
@@ -344,6 +377,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
         <button className="btn" onClick={() => criar(`Carteira ${estado.carteiras.length + 1}`)}>Nova</button>
         <button className="btn" onClick={renomear}>Renomear</button>
         <button className="btn" onClick={exportar}>Exportar</button>
+        <button className="btn" onClick={compartilhar} title="Link com as operações desta carteira (vai no próprio link; não fica salvo em servidor)">{copiado || 'Compartilhar link'}</button>
         <button className="btn" onClick={() => arquivo.current?.click()}>Importar</button>
         <input ref={arquivo} type="file" accept="application/json,.json" hidden onChange={importar} />
         {onSimular && posicoes.length > 0 && tot.valor > 0 && (
@@ -408,6 +442,11 @@ export default function HomeBroker({ onOpen, onSimular }) {
           setMetaRenda={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, meta_renda: v } : c)) }))} />
       )}
 
+      {posicoes.length > 0 && (
+        <Alertas alertas={carteira.alertas || []} linhas={linhas}
+          setAlertas={(al) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, alertas: al } : c)) }))} />
+      )}
+
       <Operacoes transacoes={transacoes} setTransacoes={setTransacoes}
         onImportarB3={(ops, arquivo) => criar(`B3 · ${arquivo.replace(/\.(xlsx|xls|csv)$/i, '')}`, [], ops)} />
 
@@ -417,7 +456,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
 
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Posições</h2>
-        <div className="table-wrap" style={{ border: 0 }}>
+        <div className="table-wrap cartoes" style={{ border: 0 }}>
           <table>
             <thead>
               <tr>

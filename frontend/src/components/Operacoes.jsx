@@ -151,7 +151,7 @@ export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
       )}
 
       {aberto && (
-        <div className="table-wrap" style={{ border: 0, marginTop: 8 }}>
+        <div className="table-wrap cartoes" style={{ border: 0, marginTop: 8 }}>
           <table>
             <thead><tr><th className="txt">Data</th><th className="txt">Operação</th><th className="txt">Ativo</th><th>Qtd.</th><th>Preço</th><th>Total</th><th aria-label="Ações" /></tr></thead>
             <tbody>

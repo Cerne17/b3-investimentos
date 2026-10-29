@@ -126,7 +126,7 @@ export default function Desempenho({ transacoes, d, erro }) {
             </>
           )}
 
-          <div className="table-wrap" style={{ border: 0, marginTop: 10 }}>
+          <div className="table-wrap cartoes" style={{ border: 0, marginTop: 10 }}>
             <table>
               <thead><tr><th className="txt">Comparação</th><th>No período</th><th title="Valor de hoje se cada compra e venda tivesse sido feita no índice">Mesmos aportes</th><th>Diferença</th></tr></thead>
               <tbody>
@@ -149,7 +149,7 @@ export default function Desempenho({ transacoes, d, erro }) {
           {d.proventos_recebidos.length > 0 && (
             <details style={{ marginTop: 10 }}>
               <summary className="muted" style={{ cursor: 'pointer', fontSize: 13 }}>Proventos recebidos ({d.proventos_recebidos.length})</summary>
-              <div className="table-wrap" style={{ border: 0 }}>
+              <div className="table-wrap cartoes" style={{ border: 0 }}>
                 <table>
                   <thead><tr><th className="txt">Data ex</th><th className="txt">Ativo</th><th>R$/cota</th><th>Cotas</th><th>Valor</th></tr></thead>
                   <tbody>

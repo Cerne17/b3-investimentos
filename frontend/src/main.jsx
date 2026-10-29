@@ -2,6 +2,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { Analytics } from '@vercel/analytics/react'
 import App from './App.jsx'
+import { ativarCartoes } from './lib/cartoes.js'
 import '@fontsource/geist-sans/400.css'
 import '@fontsource/geist-sans/500.css'
 import '@fontsource/geist-sans/600.css'
@@ -16,3 +17,5 @@ createRoot(document.getElementById('root')).render(
     <Analytics />
   </>
 )
+
+ativarCartoes()
