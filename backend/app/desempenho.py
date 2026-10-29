@@ -278,6 +278,11 @@ def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> d
     compras = sum(x["q"] * x["p"] for x in tx if x["sinal"] > 0 and not x["evento"])
     vendas = sum(x["q"] * x["p"] for x in tx if x["sinal"] < 0 and not x["evento"])
     posicoes, ir_mensal = _custo_medio_e_ir(tx)
+    from . import irpf
+    try:
+        declaracao = irpf.relatorio(tx, recebidos, ir_mensal, eventos)
+    except Exception as e:  # o relatório anual é extra: não derruba o desempenho
+        declaracao, _ = {}, avisos.append(f"relatório anual do IR: {e}")
     return {
         "inicio": datas[0].strftime("%Y-%m-%d"), "fim": datas[-1].strftime("%Y-%m-%d"),
         "datas": [d.strftime("%Y-%m-%d") for d in datas],
@@ -296,5 +301,6 @@ def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> d
         "proventos_recebidos": recebidos[::-1][:200],
         "posicoes": posicoes,
         "ir": ir_mensal,
+        "irpf": declaracao,
         "avisos": avisos,
     }

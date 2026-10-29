@@ -4,6 +4,7 @@ import { carregar, novaCarteira, salvar } from '../lib/broker.js'
 import { carteiraDoLink, limparLink, linkDaCarteira } from '../lib/compartilhar.js'
 import { fmt, signClass, signed } from '../format.js'
 import Desempenho, { ImpostoVendas, useDesempenho } from './Desempenho.jsx'
+import Declaracao from './Declaracao.jsx'
 import Operacoes from './Operacoes.jsx'
 import Alertas from './Alertas.jsx'
 import Rebalanceamento from './Rebalanceamento.jsx'
@@ -493,6 +494,8 @@ export default function HomeBroker({ onOpen, onSimular }) {
       <Desempenho transacoes={transacoes} d={desemp} erro={erroDesemp} />
 
       <ImpostoVendas d={desemp} />
+
+      <Declaracao irpf={desemp?.irpf} />
 
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Posições</h2>
