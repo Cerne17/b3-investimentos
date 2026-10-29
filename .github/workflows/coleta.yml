@@ -36,8 +36,13 @@ jobs:
       - name: Partir da base publicada
         env:
           GH_TOKEN: ${{ github.token }}
+          MODO: ${{ github.event.inputs.modo || (github.event.schedule == '0 9 * * 6' && 'completa') || 'rendafixa' }}
         run: |
-          gh release download dados -p b3.db -O data/b3.db --clobber || echo "sem release de dados, parte da base do repositório"
+          if ! gh release download dados -p b3.db -O data/b3.db --clobber; then
+            # coleta parcial sem a base publicada geraria uma base só com renda fixa e apagaria o resto
+            if [ "$MODO" != "completa" ]; then echo "base publicada indisponível: rode a coleta completa" >&2; exit 1; fi
+            echo "sem base publicada: coleta completa do zero"
+          fi
       - name: Coletar
         working-directory: backend
         env:

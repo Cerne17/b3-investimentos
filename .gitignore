@@ -14,3 +14,7 @@ data/*.log
 .claude/
 .vercel
 .env*
+
+# base de dados: publicada na release "dados" (ver scripts/build-vercel.sh e .github/workflows/coleta.yml)
+data/b3.db
+data/*.log

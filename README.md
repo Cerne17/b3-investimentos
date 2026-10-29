@@ -233,14 +233,26 @@ Filosofias (`filosofia`) que escolhem os indicadores sozinhas: `value_conservado
 `equilibrado`, `crescimento` (`GET /api/carteira/opcoes`). A resposta sempre traz também a carteira de pesos
 iguais, métricas por ativo, matriz de correlação e a fronteira eficiente.
 
+## Base de dados
+
+`data/b3.db` não fica no git: a coleta publica a base na release [`dados`](https://github.com/Cerne17/b3-investimentos/releases/tag/dados)
+e o build da Vercel (`scripts/build-vercel.sh`) a baixa. Para desenvolver localmente:
+
+```bash
+curl -fL -o data/b3.db https://github.com/Cerne17/b3-investimentos/releases/download/dados/b3.db
+```
+
+(ou gere do zero com `python -m app.ingest`, que leva bem mais tempo).
+
 ## Testes e coleta automática
 
 ```bash
 cd backend && .venv/bin/python -m pytest -q tests   # sem rede: dados de mercado sintéticos
 ```
 
-GitHub Actions: `testes.yml` roda os testes e o build do dashboard a cada push; `coleta.yml` atualiza `data/b3.db`
-(dias úteis às 20h30: renda fixa; sábado: coleta completa) e faz commit, o que dispara o deploy da Vercel. Também dá
+GitHub Actions: `testes.yml` roda os testes e o build do dashboard a cada push; `coleta.yml` parte da base publicada,
+atualiza (dias úteis às 20h30: renda fixa; sábado: coleta completa), publica de volta na release `dados` e faz commit
+de `data/versao.txt`, o que dispara o deploy da Vercel. Também dá
 para rodar à mão em Actions → Coleta de dados → Run workflow.
 
 ## MCP
