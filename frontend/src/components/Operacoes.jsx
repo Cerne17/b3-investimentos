@@ -8,12 +8,39 @@ import BuscaAtivo from './BuscaAtivo.jsx'
 const hoje = () => new Date().toISOString().slice(0, 10)
 const qtdFmt = (q) => (Number.isInteger(q) ? fmt.int(q) : fmt.num(q, q < 1 ? 6 : 4))
 
+// Linha da tabela de operações em modo de edição (data, tipo, quantidade e preço). Salvar tira a marca "sem data real".
+function LinhaEditavel({ t, onSalvar, onCancelar }) {
+  const [e, setE] = useState({ data: t.data, tipo: t.tipo, quantidade: t.quantidade, preco: t.preco })
+  const ok = e.data && Number(e.quantidade) > 0 && Number(e.preco) >= 0
+  const salvar = () => ok && onSalvar({ ...t, data: e.data, tipo: e.tipo, quantidade: Number(e.quantidade), preco: Number(e.preco), inicial: false })
+  const tecla = (ev) => { if (ev.key === 'Enter') salvar(); if (ev.key === 'Escape') onCancelar() }
+  return (
+    <tr style={{ cursor: 'default' }} onKeyDown={tecla}>
+      <td className="txt"><input className="hb-edit" style={{ width: 140 }} type="date" max={hoje()} value={e.data} onChange={(x) => setE({ ...e, data: x.target.value })} aria-label="Data" autoFocus /></td>
+      <td className="txt">
+        <select value={e.tipo} onChange={(x) => setE({ ...e, tipo: x.target.value })} aria-label="Operação">
+          <option value="compra">Compra</option><option value="venda">Venda</option>
+        </select>
+      </td>
+      <td className="txt">{t.ticker}</td>
+      <td className="num"><input className="hb-edit" type="number" step="any" min="0" value={e.quantidade} onChange={(x) => setE({ ...e, quantidade: x.target.value })} aria-label="Quantidade" /></td>
+      <td className="num"><input className="hb-edit" type="number" step="any" min="0" value={e.preco} onChange={(x) => setE({ ...e, preco: x.target.value })} aria-label="Preço" /></td>
+      <td className="num">{fmt.brl(Number(e.quantidade) * Number(e.preco))}</td>
+      <td style={{ whiteSpace: 'nowrap' }}>
+        <button className="chip on" style={{ padding: '0 8px' }} disabled={!ok} onClick={salvar}>Salvar</button>{' '}
+        <button className="chip" style={{ padding: '0 8px' }} onClick={onCancelar}>Cancelar</button>
+      </td>
+    </tr>
+  )
+}
+
 // Formulário de compra/venda com data e a lista de operações da carteira; importa o extrato da B3 numa carteira nova.
 export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
   const [novo, setNovo] = useState({ tipo: 'compra', data: hoje(), ticker: '', quantidade: '', preco: '', valor: '' })
   const [sugerido, setSugerido] = useState(null) // preço de fechamento na data, para preencher
-  const [aberto, setAberto] = useState(false)
+  const [aberto, setAberto] = useState(() => transacoes.some((t) => t.inicial))
   const [importando, setImportando] = useState(null)
+  const [editando, setEditando] = useState(null) // id da operação em edição
   const arquivo = useRef(null)
   const rf = ehRendaFixa(novo.ticker)
 
@@ -89,7 +116,8 @@ export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
       {iniciais && (
         <p className="muted" style={{ fontSize: 13, margin: '8px 0 0' }}>
           As posições desta carteira foram criadas sem data de compra (contam como compradas em {fmt.date(transacoes[0].data)}).
-          Lance as operações com as datas reais — ou importe o extrato da B3 — para ver o desempenho de verdade.
+          Abra a lista de operações e use <b>Editar</b> para pôr a data real de cada compra (ou importe o extrato da B3) — o
+          desempenho e os proventos passam a contar desde então. Compras posteriores do mesmo ativo entram como operações novas.
         </p>
       )}
 
@@ -125,9 +153,12 @@ export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
       {aberto && (
         <div className="table-wrap" style={{ border: 0, marginTop: 8 }}>
           <table>
-            <thead><tr><th className="txt">Data</th><th className="txt">Operação</th><th className="txt">Ativo</th><th>Qtd.</th><th>Preço</th><th>Total</th><th aria-label="Excluir" /></tr></thead>
+            <thead><tr><th className="txt">Data</th><th className="txt">Operação</th><th className="txt">Ativo</th><th>Qtd.</th><th>Preço</th><th>Total</th><th aria-label="Ações" /></tr></thead>
             <tbody>
-              {ordenadas.map((t) => (
+              {ordenadas.map((t) => editando === t.id ? (
+                <LinhaEditavel key={t.id} t={t} onCancelar={() => setEditando(null)}
+                  onSalvar={(novaOp) => { setTransacoes((ts) => ts.map((x) => (x.id === t.id ? novaOp : x))); setEditando(null) }} />
+              ) : (
                 <tr key={t.id} style={{ cursor: 'default' }}>
                   <td className="txt">{fmt.date(t.data)}{t.inicial ? ' *' : ''}</td>
                   <td className="txt"><span className={`badge ${t.tipo === 'venda' ? 'neg' : ''}`}>{t.tipo === 'venda' ? 'Venda' : 'Compra'}</span></td>
@@ -135,14 +166,17 @@ export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
                   <td className="num">{qtdFmt(t.quantidade)}</td>
                   <td className="num">{fmt.preco(t.preco)}</td>
                   <td className="num">{fmt.brl(t.quantidade * t.preco)}</td>
-                  <td><button className="chip" style={{ padding: '0 6px' }} aria-label={`Excluir operação de ${t.ticker}`}
-                    onClick={() => setTransacoes((ts) => ts.filter((x) => x.id !== t.id))}>✕</button></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button className="chip" style={{ padding: '0 8px' }} aria-label={`Editar operação de ${t.ticker}`} onClick={() => setEditando(t.id)}>Editar</button>{' '}
+                    <button className="chip" style={{ padding: '0 6px' }} aria-label={`Excluir operação de ${t.ticker}`}
+                      onClick={() => setTransacoes((ts) => ts.filter((x) => x.id !== t.id))}>✕</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
           {!transacoes.length && <div className="empty">Nenhuma operação ainda.</div>}
-          {transacoes.some((t) => t.inicial) && <p className="muted" style={{ fontSize: 12 }}>* posição sem data real (criada antes do registro de operações).</p>}
+          {transacoes.some((t) => t.inicial) && <p className="muted" style={{ fontSize: 12 }}>* posição sem data real (criada antes do registro de operações) — clique em Editar para pôr a data da compra.</p>}
         </div>
       )}
     </div>

@@ -552,5 +552,6 @@ def aportar(tickers: list[str], pesos: list[float], quantidades: list[float] | N
             for i, t in enumerate(tickers)
         ],
         "aporte": round(aporte, 2), "usado": round(aporte - caixa, 2), "sobra": round(caixa, 2),
-        "fora_do_alvo_antes": round(afast(atual), 2), "fora_do_alvo_depois": round(afast(depois), 2),
+        "fora_do_alvo_antes": round(afast(atual), 2) if atual.sum() else None,  # carteira vazia: não há "antes"
+        "fora_do_alvo_depois": round(afast(depois), 2),
     }

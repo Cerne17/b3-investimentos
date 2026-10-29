@@ -58,7 +58,7 @@ function OndeAportar({ c, tickers, aporte, qtdAtuais }) {
             </tbody>
           </table>
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Usa {fmt.brl(r.usado)}{r.sobra > 0.01 ? ` (sobram ${fmt.brl(r.sobra)})` : ''} · fora do alvo: {fmt.pct(r.fora_do_alvo_antes, 1)} → {fmt.pct(r.fora_do_alvo_depois, 1)} da carteira.
+            Usa {fmt.brl(r.usado)}{r.sobra > 0.01 ? ` (sobram ${fmt.brl(r.sobra)})` : ''} · fora do alvo: {r.fora_do_alvo_antes != null ? `${fmt.pct(r.fora_do_alvo_antes, 1)} → ` : ''}{fmt.pct(r.fora_do_alvo_depois, 1)} da carteira.
             {!Object.keys(qtdAtuais).length && ' Sem posições atuais: importe do Home Broker para considerar o que você já tem.'}
           </div>
         </>

@@ -3,13 +3,14 @@
 Rodar:  uvicorn app.main:app --reload --port 8000
 Docs:   http://localhost:8000/docs  (Swagger)  ·  /redoc  ·  /openapi.json (importável no Postman)
 """
+import hashlib
 import threading
 from datetime import date, datetime, timezone
 from typing import Literal
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Path as P, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -562,5 +563,8 @@ if DIST.exists():
         arq = DIST / caminho
         if caminho and arq.is_file():
             return FileResponse(arq)
-        # index.html sem cache: um build novo do dashboard aparece sem precisar de hard refresh
-        return FileResponse(DIST / "index.html", headers={"Cache-Control": "no-cache"})
+        # index.html sem cache e com ETag do conteúdo: na Vercel os arquivos têm data fixa e o ETag padrão (data +
+        # tamanho) se repete entre builds, então o navegador recebia 304 e ficava com o dashboard antigo
+        html = (DIST / "index.html").read_bytes()
+        return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache",
+                                                               "ETag": f'"{hashlib.sha1(html).hexdigest()}"'})

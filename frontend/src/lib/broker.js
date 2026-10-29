@@ -15,7 +15,7 @@ export function carregar() {
 }
 
 function migrar(c) {
-  if (Array.isArray(c.transacoes)) return c
+  if (Array.isArray(c.transacoes)) return { ...c, posicoes: posicoesDe(c.transacoes) } // posições sempre derivadas das operações
   const data = (c.criada || new Date().toISOString()).slice(0, 10)
   const transacoes = (c.posicoes || []).map((p) => ({ id: id(), data, ticker: p.ticker, tipo: 'compra', quantidade: p.quantidade, preco: p.preco_medio, inicial: true }))
   return { ...c, transacoes, posicoes: posicoesDe(transacoes) }

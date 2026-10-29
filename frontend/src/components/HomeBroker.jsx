@@ -35,11 +35,19 @@ const ultimos12 = () => {
     .map((m) => `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`)
 }
 
-function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda }) {
+// cotas que a carteira tinha no fim do dia anterior à data ex (quem compra na data ex não recebe)
+const cotasNaDataEx = (transacoes, ticker, dataEx) => Math.max(0, transacoes
+  .filter((t) => t.ticker === ticker && t.data < dataEx)
+  .reduce((a, t) => a + (t.tipo === 'venda' ? -t.quantidade : t.quantidade), 0))
+
+function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda, transacoes }) {
   const meses = ultimos12()
+  // recebido de verdade: cada provento x as cotas que havia na data ex (compras e vendas ao longo do ano contam)
+  const recebidoDe = (ticker, filtro = () => true) => (Array.isArray(provs[ticker]) ? provs[ticker] : [])
+    .filter(filtro).reduce((x, p) => x + p.valor * cotasNaDataEx(transacoes, ticker, p.data), 0)
   const porMes = meses.map((m) => ({
     mes: `${m}-01`,
-    valor: linhas.reduce((a, l) => a + (Array.isArray(provs[l.ticker]) ? provs[l.ticker].filter((p) => p.data.startsWith(m)).reduce((x, p) => x + p.valor * l.quantidade, 0) : 0), 0),
+    valor: linhas.reduce((a, l) => a + recebidoDe(l.ticker, (p) => p.data.startsWith(m)), 0),
   }))
   const pagadores = linhas.filter((l) => l.prov12 > 0).sort((a, b) => b.prov12 * b.quantidade - a.prov12 * a.quantidade)
   const total12 = porMes.reduce((a, m) => a + m.valor, 0)
@@ -65,13 +73,13 @@ function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda }) {
       )}
       <div className="grid two" style={{ marginTop: 12 }}>
         <div>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>Recebido por mês nos últimos 12 meses · com as quantidades de hoje</div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Recebido por mês nos últimos 12 meses · pelas cotas em cada data ex</div>
           <BarChart data={total12 > 0 ? porMes : []} x="mes" y="valor" format={(v) => fmt.num(v, 2)} />
           <div className="muted" style={{ fontSize: 13 }}>Total 12 meses: <b className="num">{fmt.brl(total12)}</b> · média {fmt.brl(total12 / 12)}/mês</div>
         </div>
         <div className="table-wrap" style={{ border: 0 }}>
           <table>
-            <thead><tr><th className="txt">Ativo</th><th title="Pagamentos nos últimos 12 meses">Pagam.</th><th>Último (R$/cota)</th><th>Renda 12m</th><th title="Proventos de 12 meses ÷ preço médio">Yield on cost</th></tr></thead>
+            <thead><tr><th className="txt">Ativo</th><th title="Pagamentos nos últimos 12 meses">Pagam.</th><th>Último (R$/cota)</th><th title="Recebido nos últimos 12 meses, pelas cotas que você tinha em cada data ex">Recebido 12m</th><th title="Proventos de 12 meses por cota x cotas de hoje">Renda/ano hoje</th><th title="Proventos de 12 meses ÷ preço médio">Yield on cost</th></tr></thead>
             <tbody>
               {pagadores.map((l) => {
                 const lista = Array.isArray(provs[l.ticker]) ? provs[l.ticker] : []
@@ -81,6 +89,7 @@ function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda }) {
                     <td className="txt"><span className="dot" style={{ background: cor(l.i) }} />{l.ticker}</td>
                     <td className="num">{lista.length || '—'}</td>
                     <td className="num">{ult ? <>{fmt.num(ult.valor, 4)} <span className="muted">{fmt.date(ult.data)}</span></> : '—'}</td>
+                    <td className="num">{fmt.brl(recebidoDe(l.ticker))}</td>
                     <td className="num">{fmt.brl(l.prov12 * l.quantidade)}</td>
                     <td className="num">{l.preco_medio ? fmt.pct((l.prov12 / l.preco_medio) * 100) : '—'}</td>
                   </tr>
@@ -91,7 +100,7 @@ function Proventos({ linhas, provs, tot, metaRenda, setMetaRenda }) {
           {!pagadores.length && <div className="empty">Nenhum ativo da carteira pagou proventos nos últimos 12 meses.</div>}
         </div>
       </div>
-      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Proventos por data ex (Yahoo Finance), brutos de imposto. Yield on cost compara a renda com o que você pagou; DY 12m, com o preço de hoje.</p>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Proventos por data ex (Yahoo Finance), brutos de imposto; quem compra na data ex só recebe no pagamento seguinte. Yield on cost compara a renda com o que você pagou; DY 12m, com o preço de hoje.</p>
     </div>
   )
 }
@@ -377,7 +386,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
       </div>
 
       {posicoes.length > 0 && (
-        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda}
+        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda} transacoes={transacoes}
           setMetaRenda={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, meta_renda: v } : c)) }))} />
       )}
 
