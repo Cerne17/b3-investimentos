@@ -207,6 +207,17 @@ def importar(arquivo_base64: str, nome: str = "extrato.xlsx") -> dict:
         raise ValueError("Formato não reconhecido: use o extrato de Negociação, Movimentação ou Posição da Área do Investidor da B3.")
 
     transacoes.sort(key=lambda t: t["data"])
+    # venda sem compra antes dentro do extrato = posição de antes do período exportado
+    saldo, antes = {}, set()
+    for t in transacoes:
+        q = saldo.get(t["ticker"], 0.0) + (t["quantidade"] if t["tipo"] == "compra" else -t["quantidade"])
+        if q < -1e-9:
+            antes.add(t["ticker"])
+        saldo[t["ticker"]] = max(q, 0.0)
+    if antes:
+        inicio = pd.Timestamp(transacoes[0]["data"]).strftime("%d/%m/%Y")
+        avisos.append(f"Vendas sem compra registrada no extrato ({', '.join(sorted(antes))}): o extrato começa em {inicio}. "
+                      "Exporte um período maior para trazer as compras antigas — ou apague essas vendas.")
     sem_preco = sorted({t["ticker"] for t in transacoes if not t["preco"] and not t.get("evento")})
     if sem_preco:
         avisos.append("Operações sem preço (o custo fica zero): " + ", ".join(sem_preco))
