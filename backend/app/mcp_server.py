@@ -214,6 +214,7 @@ def simular_carteira_monte_carlo(
     ir: bool = False,
     anos_saque: float = 0,
     saque_mensal: float = 0,
+    benchmark: str | None = "IBOV",
 ) -> dict:
     """Monte Carlo do patrimônio de uma carteira (retorno total, rebalanceada aos pesos; aporte no fim do mês).
     Retorna percentis do valor final, probabilidade de perda e de superar a renda fixa, CAGR e drawdown por cenário;
@@ -224,13 +225,17 @@ def simular_carteira_monte_carlo(
     meta_tipo=renda: `meta` é a renda mensal desejada no fim do horizonte.
     ir=True: proventos líquidos de IR e `final.liquido` = patrimônio depois do IR de um resgate total no fim.
     Aposentadoria: anos_saque + saque_mensal → `aposentadoria` com a chance de o dinheiro durar, o patrimônio no início
-    dos saques, o saque seguro para 95/90/75/50% de chance e a comparação com a regra dos 4%."""
+    dos saques, o saque seguro para 95/90/75/50% de chance e a comparação com a regra dos 4%.
+    benchmark (IBOV, IFIX, S&P 500, CDI): simulado com os mesmos sorteios; `benchmark.prob_superar` = chance de a
+    carteira terminar melhor que o índice no mesmo cenário."""
     r = montecarlo.simular_carteira(tickers, pesos, valor_inicial, aporte_mensal, anos, simulacoes, metodo, meta=meta,
                                     inflacao=inflacao, proventos=proventos, meta_tipo=meta_tipo, ir=ir,
-                                    anos_saque=anos_saque, saque_mensal=saque_mensal)
+                                    anos_saque=anos_saque, saque_mensal=saque_mensal, benchmark=benchmark)
     for k in ("bandas", "caminhos", "histograma", "investido", "renda_fixa", "datas"):
         r.pop(k, None)
     r["renda"].pop("bandas", None)
+    if r.get("benchmark"):
+        r["benchmark"].pop("mediana", None)
     return r
 
 

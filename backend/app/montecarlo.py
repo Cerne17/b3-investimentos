@@ -37,18 +37,52 @@ def _indices_bootstrap(T: int, dias: int, n: int, rng: np.random.Generator) -> n
     return idx.reshape(n, -1)[:, :dias]
 
 
-def _gerar(r: np.ndarray, dias: int, n: int, metodo: str, rng: np.random.Generator) -> np.ndarray:
-    """Matriz (n, dias) de retornos diários simulados a partir da série histórica r."""
+def _choques(metodo: str, n: int, dias: int, rng: np.random.Generator) -> np.ndarray:
+    if metodo == "t":
+        gl = 4
+        return rng.standard_t(gl, size=(n, dias)) / math.sqrt(gl / (gl - 2))
+    return rng.standard_normal((n, dias))
+
+
+def _gerar(r: np.ndarray, dias: int, n: int, metodo: str, rng: np.random.Generator, z: np.ndarray | None = None) -> np.ndarray:
+    """Matriz (n, dias) de retornos diários simulados a partir da série histórica r (z: choques já sorteados)."""
     if metodo == "bootstrap":
         return r[_indices_bootstrap(len(r), dias, n, rng)].astype(np.float32)
     lr = np.log1p(r)
     mu, sd = lr.mean(), lr.std(ddof=1)
-    if metodo == "t":
-        gl = 4
-        z = rng.standard_t(gl, size=(n, dias)) / math.sqrt(gl / (gl - 2))
-    else:
-        z = rng.standard_normal((n, dias))
+    z = _choques(metodo, n, dias, rng) if z is None else z
     return np.expm1(mu + sd * z).astype(np.float32)
+
+
+BENCHMARKS = {"IBOV": "^BVSP", "IFIX": "XFIX11", "S&P 500": "IVVB11", "CDI": "CDI"}
+
+
+def _retornos_benchmark(nome: str, periodo: str, datas: pd.DatetimeIndex) -> np.ndarray | None:
+    """Retornos diários do índice nas datas da carteira (retorno total; o Ibovespa já reinveste proventos)."""
+    simbolo = BENCHMARKS.get(nome, nome)
+    h = history(simbolo, periodo)
+    if h.empty:
+        return None
+    close = h["Close"].dropna()
+    if "Dividends" in h and simbolo != "^BVSP":
+        close = ((close + h["Dividends"].reindex(close.index).fillna(0)) / close.shift(1)).fillna(1).cumprod()
+    idx = close.index.tz_localize(None) if close.index.tz is not None else close.index
+    close = pd.Series(close.to_numpy(), index=idx.normalize())
+    close = close[~close.index.duplicated(keep="last")]
+    # fechamento do índice em cada data da carteira (último conhecido) e o retorno entre datas consecutivas,
+    # inclusive a primeira, que usa o fechamento anterior a ela
+    cal = close.index.union(datas)
+    cheio = close.reindex(cal).ffill()
+    ant = cheio.shift(1).reindex(datas)
+    agora = cheio.reindex(datas)
+    if agora.isna().mean() > 0.1:
+        return None  # histórico do índice não cobre a janela da carteira
+    pos = cal.get_indexer(datas)
+    anterior = pd.Series(cheio.to_numpy()[np.maximum(pos - 1, 0)], index=datas)
+    # entre duas datas da carteira o índice pode ter vários pregões: o retorno é o acumulado desde a data anterior
+    base = agora.shift(1)
+    base.iloc[0] = anterior.iloc[0]
+    return np.nan_to_num((agora / base - 1).to_numpy(), nan=0.0)
 
 
 def _pct(m: np.ndarray, eixo=0) -> dict:
@@ -91,12 +125,15 @@ def simular_carteira(
     ir: bool = False,
     anos_saque: float = 0,
     saque_mensal: float = 0,
+    benchmark: str | None = "IBOV",
 ) -> dict:
     """proventos: "reinvestir" (retorno total) ou "sacar" (o patrimônio cresce só pelo preço; o provento é renda).
     meta_tipo: "patrimonio" (valor final) ou "renda" (renda mensal média dos últimos 12 meses do horizonte).
     ir: desconta o IR dos proventos (todo mês) e o IR sobre o ganho num resgate total no fim (ver impostos.py).
     anos_saque, saque_mensal: depois de `anos` acumulando, saca `saque_mensal` (em reais de hoje se houver
-    inflação) por `anos_saque` anos; o patrimônio que zera fica zerado (o dinheiro acabou)."""
+    inflação) por `anos_saque` anos; o patrimônio que zera fica zerado (o dinheiro acabou).
+    benchmark: IBOV, IFIX, S&P 500, CDI ou um ticker — simulado com os mesmos sorteios (mesmas datas no bootstrap;
+    choques correlacionados nos métodos paramétricos) e os mesmos aportes/saques; None desliga."""
     if proventos not in ("reinvestir", "sacar"):
         raise ValueError("proventos deve ser 'reinvestir' ou 'sacar'.")
     if meta_tipo not in ("patrimonio", "renda"):
@@ -140,13 +177,33 @@ def simular_carteira(
         acum = np.concatenate([np.zeros((n, 1)), np.cumsum(np.log1p(diario), axis=1, dtype=np.float64)], axis=1)
         return np.exp(acum[:, limites[1:]] - acum[:, limites[:-1]])
 
+    rb = None
+    if benchmark:
+        try:
+            # R_df.index são as datas dos retornos; o fechamento da véspera vem da série do índice
+            rb = _retornos_benchmark(benchmark, periodo, R_df.index)
+        except Exception:
+            rb = None
+    sim_b = None
     if metodo == "bootstrap":
         idx = _indices_bootstrap(len(r), dias, n, rng)
         sim, sim_d = r[idx].astype(np.float32), d[idx].astype(np.float32)
+        if rb is not None:
+            sim_b = rb[idx].astype(np.float32)
         del idx
     else:
-        sim, sim_d = _gerar(r, dias, n, metodo, rng), np.full((1, dias), d.mean(), np.float32)
+        z = _choques(metodo, n, dias, rng)
+        sim, sim_d = _gerar(r, dias, n, metodo, rng, z), np.full((1, dias), d.mean(), np.float32)
+        if rb is not None:  # choque do índice correlacionado com o da carteira
+            lr, lb = np.log1p(r), np.log1p(rb)
+            rho = float(np.corrcoef(lr, lb)[0, 1]) if lb.std() > 0 else 0.0
+            zb = rho * z + math.sqrt(max(0.0, 1 - rho ** 2)) * _choques(metodo, n, dias, rng)
+            sim_b = np.expm1(lb.mean() + lb.std(ddof=1) * zb).astype(np.float32)
+            del zb
+        del z
     G_total = por_mes(sim)
+    Gb = por_mes(sim_b) / (1 + inflacao) ** (1 / 12) if sim_b is not None else None
+    del sim_b
     G = por_mes(sim - sim_d) if sacar else G_total  # sacando, o patrimônio cresce só pelo preço
     # rendimento em proventos de cada mês, sobre o patrimônio do início do mês
     acum_d = np.concatenate([np.zeros((sim_d.shape[0], 1)), np.cumsum(sim_d, axis=1, dtype=np.float64)], axis=1)
@@ -188,6 +245,12 @@ def simular_carteira(
         renda_fixa[m + 1] = max(0.0, renda_fixa[m] * (1 + rf_m) + (aporte_mensal if m < macc else -saque_mensal))
     # total sacado na aposentadoria (só os meses em que ainda havia dinheiro)
     sacado = saque_mensal * vivo[:, macc + 1:].sum(axis=1) if msaq else np.zeros(n)
+    Vb = None
+    if Gb is not None:  # o mesmo dinheiro, com os mesmos aportes e saques, no índice
+        Vb = np.empty((n, meses + 1))
+        Vb[:, 0] = valor_inicial
+        for m in range(meses):
+            Vb[:, m + 1] = np.maximum(Vb[:, m] * Gb[:, m] + (aporte_mensal if m < macc else -saque_mensal), 0)
     final = V[:, -1]
     rf_fim = renda_fixa[-1]
     imposto = np.zeros(n)
@@ -209,6 +272,21 @@ def simular_carteira(
     cagr = indice[:, -1] ** (12 / meses) - 1
     dd = _mdd(I)
     q5 = np.percentile(resultado, 5)
+    bench_out = None
+    if Vb is not None:
+        vb_fim = Vb[:, -1]
+        if ir:  # índice também paga 15% sobre o ganho no resgate
+            vb_fim = vb_fim - 0.15 * np.maximum(vb_fim * corr - inv_rf, 0) / corr
+        vivo_b = Vb[:, -1] > 0 if msaq else np.ones(n, bool)
+        sacado_b = saque_mensal * (Vb[:, macc + 1:] > 0).sum(axis=1) if msaq else 0
+        bench_out = {
+            "nome": benchmark, "simbolo": BENCHMARKS.get(benchmark, benchmark),
+            "mediana": np.round(np.percentile(Vb, 50, axis=0), 2).tolist(),
+            "final": {f"p{p}": round(float(v), 2) for p, v in zip(PERCENTIS, np.percentile(vb_fim, PERCENTIS))},
+            # mesmo cenário: a carteira terminou melhor que o índice? (com saques, compara patrimônio + sacado)
+            "prob_superar": round(float((resultado > vb_fim + sacado_b).mean() * 100), 2),
+            "prob_sucesso": round(float(vivo_b.mean() * 100), 2) if msaq else None,
+        }
     r2 = lambda v: round(float(v), 2)
     pct = lambda v: {f"p{p}": r2(x) for p, x in zip(PERCENTIS, np.percentile(v, PERCENTIS))}
 
@@ -249,6 +327,7 @@ def simular_carteira(
             "max_drawdown": {"p50": r2(np.percentile(dd, 50) * 100), "p95": r2(np.percentile(dd, 5) * 100)},
         },
         "histograma": _hist(final),
+        "benchmark": bench_out,
         "renda": {
             # renda mensal média dos últimos 12 meses, mês a mês (o primeiro ponto é o mês 1)
             "bandas": _pct(np.concatenate([renda_12m[:, :1], renda_12m], axis=1)),

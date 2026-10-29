@@ -130,6 +130,7 @@ function ResultadoCarteira({ r, meta }) {
   const linhas = [
     { nome: 'Total aportado', valores: r.investido, cor: 'var(--text-muted)', tracejado: true },
     { nome: `Renda fixa ${fmt.pct(p.taxa_livre_risco * 100, 1)} a.a.`, valores: r.renda_fixa, cor: 'var(--series-2)', tracejado: true },
+    ...(r.benchmark ? [{ nome: `${r.benchmark.nome} (mediana, mesmos aportes)`, valores: r.benchmark.mediana, cor: 'var(--series-4)', tracejado: true }] : []),
     ...(verCaminhos ? r.caminhos.map((c, i) => ({ nome: `Cenário ${i + 1}`, valores: c, cor: 'var(--text-muted)', fino: true, opacidade: 0.45 })) : []),
   ]
   const refsHist = [
@@ -147,6 +148,9 @@ function ResultadoCarteira({ r, meta }) {
         <Kpi label={sacar ? 'Chance de patrimônio + sacado ficar abaixo do aportado' : 'Chance de terminar abaixo do aportado'} value={fmt.pct(f.prob_perda, 1)} className={f.prob_perda > 10 ? 'neg' : ''}
           hint={f.perda_media_5_piores > 0 ? `Nos 5% piores: perda média de ${fmt.brl(f.perda_media_5_piores)}` : 'Mesmo os 5% piores cenários terminam no lucro'} />
         <Kpi label="Chance de superar a renda fixa" value={fmt.pct(f.prob_superar_renda_fixa, 1)} hint={`Renda fixa no fim: ${fmt.brl(f.renda_fixa)}${p.ir ? ' (líquida de IR)' : ''}`} />
+        {r.benchmark && <Kpi label={`Chance de bater o ${r.benchmark.nome}`} value={fmt.pct(r.benchmark.prob_superar, 1)}
+          className={r.benchmark.prob_superar >= 60 ? 'pos' : r.benchmark.prob_superar < 40 ? 'neg' : ''}
+          hint={`no mesmo cenário · ${r.benchmark.nome} mediano no fim: ${fmt.brl(r.benchmark.final.p50)}`} />}
         <Kpi label={`Retorno anual${real ? ' real' : ''} (mediana)`} value={signed(f.cagr.p50)} className={signClass(f.cagr.p50)} hint={`p5 ${signed(f.cagr.p5)} · p95 ${signed(f.cagr.p95)}`} />
         <Kpi label="Maior queda no caminho (mediana)" value={signed(f.max_drawdown.p50)} className="neg" hint={`1 em 20 cenários: ${signed(f.max_drawdown.p95)} ou pior`} />
       </div>
@@ -285,6 +289,7 @@ export default function MonteCarlo({ preset }) {
   const [metaRenda, setMetaRenda] = useState(3000)
   const [proventos, setProventos] = useState('reinvestir')
   const [ir, setIr] = useState(false)
+  const [benchmark, setBenchmark] = useState('IBOV')
   const [anosSaque, setAnosSaque] = useState(30)
   const [saque, setSaque] = useState(5000)
   const [real, setReal] = useState(true)
@@ -329,7 +334,7 @@ export default function MonteCarlo({ preset }) {
         const r = await api.mcCarteira({
           tickers: itens.map((x) => x.ticker), pesos: itens.map((x) => Number(x.peso) || 0), valor_inicial: Number(valor),
           aporte_mensal: Number(aporte), anos: Number(anos), simulacoes: Number(sims), metodo, periodo,
-          meta: modo === 'meta' ? Number(metaTipo === 'renda' ? metaRenda : meta) : null, meta_tipo: metaTipo, proventos, ir,
+          meta: modo === 'meta' ? Number(metaTipo === 'renda' ? metaRenda : meta) : null, meta_tipo: metaTipo, proventos, ir, benchmark: benchmark || null,
           ...(modo === 'aposentadoria' ? { anos_saque: Number(anosSaque), saque_mensal: Number(saque) } : {}),
           inflacao: real ? Number(inflacao) / 100 : 0,
         })
@@ -425,6 +430,14 @@ export default function MonteCarlo({ preset }) {
               {[['2y', '2 anos'], ['5y', '5 anos'], ['10y', '10 anos'], ['max', 'Máximo']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
+          {modo !== 'ativo' && (
+            <label className="field" title="Índice simulado com os mesmos sorteios e os mesmos aportes, para comparar no mesmo cenário">Comparar com
+              <select value={benchmark} onChange={(e) => setBenchmark(e.target.value)}>
+                <option value="IBOV">Ibovespa</option><option value="IFIX">IFIX (XFIX11)</option>
+                <option value="S&P 500">S&P 500 (IVVB11)</option><option value="CDI">CDI</option><option value="">Nenhum</option>
+              </select>
+            </label>
+          )}
           <label className="field">Simulações
             <select value={sims} onChange={(e) => setSims(Number(e.target.value))}>
               {[1000, 2000, 5000, 10000].map((n) => <option key={n} value={n}>{fmt.int(n)}</option>)}
