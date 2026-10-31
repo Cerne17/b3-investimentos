@@ -185,6 +185,12 @@ function useEvolucao(posicoes, periodo, tick) {
 
 export default function HomeBroker({ onOpen, onSimular }) {
   const [estado, setEstado] = useState(carregar)
+  // a sincronização com a nuvem (lib/nuvem.js) regrava o localStorage: recarrega quando ela termina
+  useEffect(() => {
+    const recarregar = () => setEstado(carregar())
+    window.addEventListener('carteiras-sincronizadas', recarregar)
+    return () => window.removeEventListener('carteiras-sincronizadas', recarregar)
+  }, [])
   const [cot, setCot] = useState({})
   const [info, setInfo] = useState({})
   const [provs, setProvs] = useState({})
@@ -312,7 +318,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
     if (nome) atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, nome } : c)) }))
   }
   const excluir = () => {
-    if (!window.confirm(`Excluir a carteira "${carteira.nome}" deste navegador? Isso não pode ser desfeito.`)) return
+    if (!window.confirm(`Excluir a carteira "${carteira.nome}"? Isso não pode ser desfeito (com login, some também dos outros aparelhos).`)) return
     atualizarEstado((e) => {
       const resto = e.carteiras.filter((c) => c.id !== carteira.id)
       return { ativa: resto[0]?.id || null, carteiras: resto }

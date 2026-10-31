@@ -379,3 +379,7 @@ a:hover { color: var(--accent-hover); }
 .guia-pontos { display: flex; gap: 6px; margin: 14px 0; }
 .guia-pontos i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); cursor: pointer; }
 .guia-pontos i.on { background: var(--series-1); }
+
+/* conta (login e sincronização) */
+.conta { position: relative; }
+.conta-menu { position: absolute; right: 0; top: calc(100% + 8px); width: min(320px, calc(100vw - 32px)); z-index: 950; padding: 14px; }

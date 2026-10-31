@@ -233,6 +233,17 @@ Filosofias (`filosofia`) que escolhem os indicadores sozinhas: `value_conservado
 `equilibrado`, `crescimento` (`GET /api/carteira/opcoes`). A resposta sempre traz também a carteira de pesos
 iguais, métricas por ativo, matriz de correlação e a fronteira eficiente.
 
+## Login e sincronização (Supabase)
+
+Sem login, as carteiras ficam só no navegador. Com login (link mágico por e-mail, botão 👤 no topo), cada carteira
+vira uma linha de `public.carteiras` no Supabase (instalado pela integração da Vercel; esquema e políticas em
+`supabase/schema.sql`, com RLS: cada usuário só lê e grava as próprias). A sincronização (`frontend/src/lib/nuvem.js`)
+roda no login, 2 s depois de cada mudança, ao voltar para a aba e a cada 2 minutos; por carteira vence a versão mais
+recente, e exclusões também sincronizam. O front usa só a URL e a chave publicável (`NEXT_PUBLIC_SUPABASE_*`).
+
+No painel do Supabase, em Authentication → URL Configuration: Site URL `https://b3.cerne.pro` e Redirect URL
+`https://b3.cerne.pro/**` (para o link do e-mail voltar ao app).
+
 ## Base de dados
 
 `data/b3.db` não fica no git: a coleta publica a base na release [`dados`](https://github.com/Cerne17/b3-investimentos/releases/tag/dados)

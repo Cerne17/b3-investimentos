@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
 import Carteira from './components/Carteira.jsx'
 import ComparadorFIIs from './components/ComparadorFIIs.jsx'
+import Conta from './components/Conta.jsx'
 import Detail from './components/Detail.jsx'
 import Guia, { CHAVE_GUIA } from './components/Guia.jsx'
 import Docs from './components/Docs.jsx'
@@ -105,6 +106,7 @@ export default function App() {
           <span className="menu-icone" aria-hidden="true">{menu ? '✕' : '☰'}</span>
           <span className="sr-only">Menu</span>
         </button>
+        <Conta />
         <button className="icon-btn" onClick={() => setGuia(true)} aria-label="Guia de primeiros passos" title="Guia de primeiros passos">?</button>
         <button className="icon-btn" onClick={() => setTema(escuro ? 'light' : 'dark')} aria-label="Alternar tema">{escuro ? '☀' : '☾'}</button>
       </header>

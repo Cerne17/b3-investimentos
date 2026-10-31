@@ -1,4 +1,4 @@
-// Carteiras do Home Broker, guardadas só no navegador (localStorage): cada visitante tem as suas.
+// Carteiras do Home Broker, guardadas no navegador (localStorage); com login, lib/nuvem.js as sincroniza.
 const CHAVE = 'homebroker_v1'
 const vazio = () => ({ ativa: null, carteiras: [] })
 const id = () => Math.random().toString(36).slice(2, 10)
@@ -21,9 +21,24 @@ function migrar(c) {
   return { ...c, transacoes, posicoes: posicoesDe(transacoes) }
 }
 
-export function salvar(estado) {
-  const e = { ...estado, carteiras: estado.carteiras.map((c) => ({ ...c, posicoes: posicoesDe(c.transacoes || []) })) }
+// `atualizada` marca a última mudança de cada carteira (é o que decide quem vence na sincronização);
+// carteiras excluídas ficam em `excluidas` até a próxima sincronização apagar na nuvem.
+// tocar=false grava sem marcar mudança (ex.: o que acabou de vir da nuvem).
+export function salvar(estado, { tocar = true } = {}) {
+  let antes = {}
+  try { antes = Object.fromEntries((JSON.parse(localStorage.getItem(CHAVE))?.carteiras || []).map((c) => [c.id, c])) } catch {}
+  const agora = new Date().toISOString()
+  const semData = (c) => JSON.stringify({ ...c, atualizada: undefined, posicoes: undefined })
+  const carteiras = estado.carteiras.map((c) => {
+    const nova = { ...c, posicoes: posicoesDe(c.transacoes || []) }
+    if (tocar && (!antes[c.id] || semData(antes[c.id]) !== semData(nova))) nova.atualizada = agora
+    return nova
+  })
+  const sumiram = Object.keys(antes).filter((id) => !carteiras.some((c) => c.id === id))
+  const excluidas = [...new Set([...(estado.excluidas || []), ...(tocar ? sumiram : [])])]
+  const e = { ...estado, carteiras, excluidas }
   try { localStorage.setItem(CHAVE, JSON.stringify(e)) } catch {}
+  if (tocar) window.dispatchEvent(new Event('carteiras-alteradas'))
   return e
 }
 
