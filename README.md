@@ -192,6 +192,13 @@ exibidas vêm do servidor, já na base atual. O desempenho traz também a apura�
 isenção de ações até R$ 20 mil/mês e de cripto até R$ 35 mil, ETFs/BDRs 15%, FIIs 20%, compensação de prejuízo por
 categoria e DARF mínimo de R$ 10.
 
+O formulário de operações trabalha por tipo de investimento: bolsa, cripto, Tesouro, CDB/LCI/LCA (% do CDI), CDI + taxa,
+IPCA + taxa, prefixado, poupança e caixa (tickers `CDI-110`, `CDI+2`, `IPCA+6`, `PRE-13`, `POUPANCA`, `CAIXA`, com rótulo
+opcional depois de `@`, ex.: `CDI-110@Banco C6`); compras podem sair do caixa e vendas voltar para ele. O painel de
+desempenho mostra a evolução mês a mês com aportes e proventos; o rebalanceamento aceita vendas e ativos congelados
+("não comprar" ou "manter" — também no Markowitz e no Monte Carlo); e a tela tem layouts (detalhado, minimalista,
+dividendos, ações e FIIs, cripto, renda fixa ou personalizado, com painéis escolhidos e reordenados).
+
 Cada operação pode ser editada (data, tipo, quantidade, preço). **Compartilhar link** gera um link com as operações
 comprimidas depois do `#` (não passam pelo servidor); quem abre escolhe importar. **Alertas** por carteira (preço
 acima/abaixo, alta/queda no dia, DY acima) são checados a cada cotação, com notificação do navegador opcional. No

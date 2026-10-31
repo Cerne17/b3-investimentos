@@ -496,9 +496,12 @@ export function EvolucaoChart({ meses, height = 320 }) {
   const x = (i) => PAD.l + bw * i + bw / 2
   const topo = Math.max(...meses.map((m) => Math.max(m.patrimonio, m.investido))) * 1.05
   const yL = (v) => PAD.t + (hLinhas - PAD.t - 6) * (1 - v / topo)
-  const maxB = Math.max(1, ...meses.map((m) => Math.max(Math.abs(m.aporte), m.proventos)))
+  // aportes e proventos com escalas próprias: proventos costumam ser bem menores e sumiriam ao lado dos aportes
+  const maxB = Math.max(1, ...meses.map((m) => Math.abs(m.aporte)))
+  const maxP = Math.max(1, ...meses.map((m) => m.proventos))
   const meio = hLinhas + 18 + hBarras / 2
   const yB = (v) => meio - (v / maxB) * (hBarras / 2 - 4)
+  const yP = (v) => meio - (v / maxP) * (hBarras / 2 - 4)
   const linha = (k) => meses.map((m, i) => `${i ? 'L' : 'M'}${x(i)},${yL(m[k])}`).join(' ')
   const area = `${linha('patrimonio')} L${x(meses.length - 1)},${yL(0)} L${x(0)},${yL(0)} Z`
   const barW = Math.max(2, Math.min(18, bw / 2 - 2))
@@ -509,7 +512,7 @@ export function EvolucaoChart({ meses, height = 320 }) {
         <span><i style={{ background: 'var(--series-1)' }} />Patrimônio + proventos</span>
         <span><i style={{ background: 'var(--text-muted)', height: 2, width: 14, borderRadius: 2, verticalAlign: 3 }} />Total investido</span>
         <span><i style={{ background: 'var(--series-2)' }} />Aportes (retiradas para baixo)</span>
-        <span><i style={{ background: 'var(--series-3)' }} />Proventos do mês</span>
+        <span><i style={{ background: 'var(--series-3)' }} />Proventos do mês (escala própria, até {fmt.brl(maxP)})</span>
       </div>
       <svg viewBox={`0 0 ${w} ${height}`} onMouseLeave={() => setHover(null)} role="img" aria-label="Evolução da carteira, aportes e proventos">
         {ticks(0, topo, 3).map((t) => (
@@ -526,7 +529,7 @@ export function EvolucaoChart({ meses, height = 320 }) {
             <rect x={PAD.l + bw * i} y={0} width={bw} height={height} fill="transparent" />
             {m.aporte !== 0 && <rect x={x(i) - barW - 1} width={barW} y={Math.min(yB(m.aporte), meio)} height={Math.abs(yB(m.aporte) - meio)}
               fill={m.aporte > 0 ? 'var(--series-2)' : 'var(--critical, #d9534f)'} opacity={hover == null || hover === i ? 1 : 0.5} rx="2" />}
-            {m.proventos > 0 && <rect x={x(i) + 1} width={barW} y={yB(m.proventos)} height={meio - yB(m.proventos)}
+            {m.proventos > 0 && <rect x={x(i) + 1} width={barW} y={yP(m.proventos)} height={meio - yP(m.proventos)}
               fill="var(--series-3)" opacity={hover == null || hover === i ? 1 : 0.5} rx="2" />}
           </g>
         ))}

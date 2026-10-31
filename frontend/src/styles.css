@@ -388,3 +388,8 @@ a:hover { color: var(--accent-hover); }
   .conta-menu { position: fixed; left: 16px; right: 16px; width: auto; top: calc(env(safe-area-inset-top, 0px) + 64px); }
   .conta-menu input { font-size: 16px; }  /* abaixo de 16px o Safari do iPhone dá zoom ao focar o campo */
 }
+
+/* layouts do Home Broker */
+.hb-layout { display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin: 4px 0 12px; }
+.hb-layout-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.hb-layout-item span { display: flex; gap: 4px; }

@@ -31,6 +31,37 @@ const EXEMPLO = [
   { ticker: 'IVVB11', quantidade: 2, preco_medio: 380 },
   { ticker: 'BTC-BRL', quantidade: 0.0012, preco_medio: 450000 },
 ]
+// Layouts do Home Broker: quais painéis aparecem, em que ordem e (opcional) quais classes nas posições/alocação.
+// Guardados neste navegador; "Personalizado" nasce de qualquer edição.
+const PAINEIS = {
+  kpis: 'Resumo (patrimônio, dia, resultado, renda)', valor_alocacao: 'Valor da carteira e alocação', proventos: 'Proventos e agenda',
+  rebalanceamento: 'Rebalanceamento', alertas: 'Alertas', operacoes: 'Operações', desempenho: 'Desempenho real',
+  ir_vendas: 'IR sobre vendas', declaracao: 'Declaração anual do IR', posicoes: 'Posições',
+}
+const TODOS = Object.keys(PAINEIS)
+const FILTROS = {
+  bolsa: { nome: 'Ações, FIIs e ETFs', classes: ['ACAO', 'FII', 'ETF'] }, acoes: { nome: 'Só ações', classes: ['ACAO'] },
+  fiis: { nome: 'Só FIIs', classes: ['FII'] }, cripto: { nome: 'Só cripto', classes: ['CRIPTO'] }, rf: { nome: 'Renda fixa e caixa', classes: ['RF', 'CAIXA'] },
+}
+const so = (...ids) => ({ ordem: [...ids, ...TODOS.filter((x) => !ids.includes(x))], ocultos: TODOS.filter((x) => !ids.includes(x)) })
+const LAYOUTS = {
+  detalhado: { nome: 'Detalhado', config: { ordem: TODOS, ocultos: [], filtro: null } },
+  minimalista: { nome: 'Minimalista', config: { ...so('kpis', 'posicoes'), filtro: null } },
+  dividendos: { nome: 'Dividendos', config: { ...so('kpis', 'proventos', 'posicoes', 'desempenho', 'declaracao'), filtro: null } },
+  acoes: { nome: 'Ações e FIIs', config: { ...so('kpis', 'valor_alocacao', 'posicoes', 'rebalanceamento', 'ir_vendas'), filtro: 'bolsa' } },
+  cripto: { nome: 'Cripto', config: { ...so('kpis', 'valor_alocacao', 'posicoes', 'alertas'), filtro: 'cripto' } },
+  rendafixa: { nome: 'Renda fixa', config: { ...so('kpis', 'posicoes', 'operacoes', 'desempenho'), filtro: 'rf' } },
+  personalizado: { nome: 'Personalizado', config: { ordem: TODOS, ocultos: [], filtro: null } },
+}
+const CHAVE_LAYOUT = 'hb_layout_v1'
+function lerLayout() {
+  try {
+    const l = JSON.parse(localStorage.getItem(CHAVE_LAYOUT))
+    if (l && Array.isArray(l.ordem)) return { ...l, ordem: [...l.ordem.filter((x) => TODOS.includes(x)), ...TODOS.filter((x) => !l.ordem.includes(x))], ocultos: l.ocultos || [] }
+  } catch {}
+  return { preset: 'detalhado', ...LAYOUTS.detalhado.config }
+}
+
 const qtdFmt = (q) => (Number.isInteger(q) ? fmt.int(q) : fmt.num(q, q < 1 ? 6 : 4))
 
 // últimos 12 meses, do mais antigo ao atual, no formato AAAA-MM
@@ -185,6 +216,13 @@ function useEvolucao(posicoes, periodo, tick) {
 
 export default function HomeBroker({ onOpen, onSimular }) {
   const [estado, setEstado] = useState(carregar)
+  const [layout, setLayout] = useState(lerLayout)
+  const [editandoLayout, setEditandoLayout] = useState(false)
+  const salvarLayout = (l) => { setLayout(l); try { localStorage.setItem(CHAVE_LAYOUT, JSON.stringify(l)) } catch {} }
+  const escolherLayout = (k) => salvarLayout(k === 'personalizado' ? { ...layout, preset: k } : { preset: k, ...LAYOUTS[k].config })
+  const alternarPainel = (id) => salvarLayout({ ...layout, preset: 'personalizado',
+    ocultos: layout.ocultos.includes(id) ? layout.ocultos.filter((x) => x !== id) : [...layout.ocultos, id] })
+  const moverPainel = (i, d) => { const o = [...layout.ordem]; [o[i], o[i + d]] = [o[i + d], o[i]]; salvarLayout({ ...layout, preset: 'personalizado', ordem: o }) }
   // a sincronização com a nuvem (lib/nuvem.js) regrava o localStorage: recarrega quando ela termina
   useEffect(() => {
     const recarregar = () => setEstado(carregar())
@@ -299,6 +337,9 @@ export default function HomeBroker({ onOpen, onSimular }) {
       cotado: linhas.some((l) => Number.isFinite(l.valor)) }
   }, [linhas])
 
+  const filtroLayout = layout.filtro && FILTROS[layout.filtro]
+  const noFiltro = (l) => !filtroLayout || filtroLayout.classes.includes(l.tipo)
+  const visiveis = linhas.filter(noFiltro)
   const classes = useMemo(() => {
     const m = {}
     linhas.forEach((l) => { const c = CLASSES[l.tipo] || 'Outros'; m[c] = (m[c] || 0) + (l.valor || 0) })
@@ -425,6 +466,162 @@ export default function HomeBroker({ onOpen, onSimular }) {
   const inicio = serie ? serie.valores[0] : null
   const fim = serie ? serie.valores[serie.valores.length - 1] : null
 
+  const paineis = {
+    kpis: (
+      <>
+      {!tot.cotado && posicoes.length > 0 ? <div className="empty">Buscando cotações…</div> : (
+      <div className="grid kpis compacto">
+        <Kpi label="Patrimônio" value={fmt.brl(tot.valor)} sub={`${posicoes.length} ativo${posicoes.length === 1 ? '' : 's'}`} />
+        <Kpi label="Variação do dia" value={`${tot.varDia >= 0 ? '+' : ''}${fmt.brl(tot.varDia)}`} className={signClass(tot.varDia)} sub={signed(tot.varDiaPct)} />
+        <Kpi label="Resultado total" value={`${tot.resultado >= 0 ? '+' : ''}${fmt.brl(tot.resultado)}`} className={signClass(tot.resultado)}
+          sub={`${signed(tot.resultadoPct)} sobre ${fmt.brl(tot.custo)} investidos`} />
+        <Kpi label="Renda passiva estimada" value={`${fmt.brl(tot.renda)}/mês`} sub={`DY da carteira ${fmt.pct(tot.dy)} · proventos dos últimos 12 meses`} />
+      </div>
+      )}
+      </>
+    ),
+    valor_alocacao: (
+      <>
+      <div className="grid two" style={{ marginBottom: 16 }}>
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <h2 style={{ margin: 0 }}>Valor da carteira</h2>
+            <div className="seg">
+              {PERIODOS.map((p) => <button key={p.k} className={periodo === p.k ? 'on' : ''} title={TITULOS[p.k]} onClick={() => setPeriodo(p.k)}>{p.l}</button>)}
+            </div>
+          </div>
+          {serie ? (
+            <>
+              <div className="muted" style={{ fontSize: 13, margin: '6px 0' }}>
+                {per.l}: <b className={`num ${signClass(fim - inicio)}`}>{fim - inicio >= 0 ? '+' : ''}{fmt.brl(fim - inicio)} ({signed((fim / inicio - 1) * 100)})</b>
+                {' '}· quantidades de hoje aplicadas aos preços de cada momento
+              </div>
+              <MultiLineChart datas={serie.datas} series={[{ nome: 'Carteira', valores: serie.valores, cor: 'var(--series-1)' }]}
+                fmtY={(v) => fmt.brl(v)} label="Valor da carteira no período"
+                refs={tot.custo ? [{ y: tot.custo, label: 'Custo' }] : []} height={240} />
+            </>
+          ) : <div className="empty">{erroSerie || (posicoes.length ? 'Carregando histórico…' : 'Adicione ativos para ver a evolução.')}</div>}
+        </div>
+        <div className="card">
+          <h2 style={{ marginTop: 0 }}>Alocação</h2>
+          <div className="stack" aria-hidden="true">
+            {visiveis.filter((l) => l.valor > 0).map((l) => <div key={l.ticker} style={{ width: `${(l.valor / tot.valor) * 100}%`, background: cor(l.i) }} title={`${l.ticker} ${fmt.pct((l.valor / tot.valor) * 100, 1)}`} />)}
+          </div>
+          <div className="hb-aloc">
+            {visiveis.filter((l) => l.valor > 0).sort((a, b) => b.valor - a.valor).map((l) => (
+              <div key={l.ticker}><span><i className="dot" style={{ background: cor(l.i) }} />{l.ticker}</span><b className="num">{fmt.pct((l.valor / tot.valor) * 100, 1)}</b></div>
+            ))}
+          </div>
+          <div className="eyebrow" style={{ margin: '14px 0 6px' }}>Por classe</div>
+          <div className="hb-aloc">
+            {classes.map(([c, v]) => (
+              <div key={c}><span>{c}</span><b className="num">{fmt.pct(tot.valor ? (v / tot.valor) * 100 : 0, 1)} · {fmt.big(v)}</b></div>
+            ))}
+          </div>
+        </div>
+      </div>
+      </>
+    ),
+    proventos: (
+      <>
+      {posicoes.length > 0 && (
+        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda} transacoes={transacoes} recebidos={desemp?.proventos_recebidos} agenda={agenda}
+          setMetaRenda={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, meta_renda: v } : c)) }))} />
+      )}
+      </>
+    ),
+    rebalanceamento: (
+      <>
+      {posicoes.length > 0 && tot.cotado && (
+        <Rebalanceamento linhas={linhas} tot={tot} alvos={carteira.alvos} tolerancia={carteira.tolerancia ?? 5}
+          setAlvos={(al) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, alvos: al } : c)) }))}
+          setTolerancia={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, tolerancia: v } : c)) }))}
+          congelados={carteira.congelados || {}}
+          setCongelados={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, congelados: v } : c)) }))} />
+      )}
+      </>
+    ),
+    alertas: (
+      <>
+      {posicoes.length > 0 && (
+        <Alertas alertas={carteira.alertas || []} linhas={linhas}
+          setAlertas={(al) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, alertas: al } : c)) }))} />
+      )}
+      </>
+    ),
+    operacoes: (
+      <>
+      <Operacoes transacoes={transacoes} setTransacoes={setTransacoes}
+        onImportarB3={(ops, arquivo) => criar(`B3 · ${arquivo.replace(/\.(xlsx|xls|csv)$/i, '')}`, [], ops)} />
+      </>
+    ),
+    desempenho: (
+      <>
+      <Desempenho transacoes={transacoes} d={desemp} erro={erroDesemp} />
+      </>
+    ),
+    ir_vendas: (
+      <>
+      <ImpostoVendas d={desemp} />
+      </>
+    ),
+    declaracao: (
+      <>
+      <Declaracao irpf={desemp?.irpf} />
+      </>
+    ),
+    posicoes: (
+      <>
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>Posições{filtroLayout ? ` · ${LAYOUTS[layout.preset]?.nome || ''}` : ''}</h2>
+        <div className="table-wrap cartoes" style={{ border: 0 }}>
+          <table>
+            <thead>
+              <tr>
+                {th('ticker', 'Ativo', 'txt')}{th('quantidade', 'Qtd.')}{th('preco_medio', 'Preço médio')}{th('preco', 'Preço')}
+                {th('var_pct', 'Dia %')}{th('var_dia', 'Dia R$')}{th('valor', 'Valor')}{th('peso', 'Peso')}
+                {th('resultado', 'Resultado')}{th('resultado_pct', 'Result. %')}{th('dy', 'DY 12m')}{th('yoc', 'YoC')}{th('renda_mes', 'Renda/mês')}
+                <th aria-label="Remover" />
+              </tr>
+            </thead>
+            <tbody>
+              {ordenadas.filter(noFiltro).map((l) => (
+                <tr key={l.ticker} onClick={() => l.codigo && TIPO_ROTA[l.tipo] && onOpen(TIPO_ROTA[l.tipo], l.codigo)} style={{ cursor: l.codigo ? 'pointer' : 'default' }}>
+                  <td className="txt">
+                    <span className="dot" style={{ background: cor(l.i) }} /><span className="tk">{l.ticker}</span>
+                    {l.tipo && <span className="badge" style={{ marginLeft: 6 }}>{CLASSES[l.tipo]}</span>}
+                    <span className="nm">{l.erro || l.nome}</span>
+                  </td>
+                  <td className="num">{qtdFmt(l.quantidade)}</td>
+                  <td className="num">{fmt.preco(l.preco_medio)}</td>
+                  <td className="num"><b>{l.preco != null ? fmt.preco(l.preco) : '…'}</b></td>
+                  <td className={`num ${signClass(l.var_pct)}`}>{signed(l.var_pct)}</td>
+                  <td className={`num ${signClass(l.var_dia)}`}>{l.var_dia != null ? fmt.brl(l.var_dia) : '—'}</td>
+                  <td className="num">{fmt.brl(l.valor)}</td>
+                  <td className="num">{l.valor != null && tot.valor ? fmt.pct((l.valor / tot.valor) * 100, 1) : '—'}</td>
+                  <td className={`num ${signClass(l.resultado)}`}>{l.resultado != null ? fmt.brl(l.resultado) : '—'}</td>
+                  <td className={`num ${signClass(l.resultado_pct)}`}>{signed(l.resultado_pct)}</td>
+                  <td className="num">{fmt.pct(l.dy)}</td>
+                  <td className="num" title="Yield on cost: proventos de 12 meses ÷ preço médio">{fmt.pct(l.yoc)}</td>
+                  <td className="num">{l.renda_mes ? fmt.brl(l.renda_mes) : '—'}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <button className="chip" style={{ padding: '0 6px' }} aria-label={`Remover ${l.ticker}`} onClick={() => remover(l.ticker)}>✕</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!posicoes.length && <div className="empty">Carteira vazia — registre a primeira compra em Operações, acima.</div>}
+        </div>
+        <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+          Quantidades fracionárias valem para cripto (ex.: 0,0012 BTC-BRL) e renda fixa (lançada em reais). Posições = operações pelo custo médio. Renda estimada = proventos pagos nos últimos 12 meses ÷ 12 (Yahoo Finance; sem cripto).
+          Somente acompanhamento: não envia ordens.
+        </p>
+      </div>
+      </>
+    ),
+  }
+
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
@@ -463,128 +660,35 @@ export default function HomeBroker({ onOpen, onSimular }) {
         <button className="btn" onClick={excluir} style={{ color: 'var(--critical)' }}>Excluir</button>
       </div>
 
-      {!tot.cotado && posicoes.length > 0 ? <div className="empty">Buscando cotações…</div> : (
-      <div className="grid kpis compacto">
-        <Kpi label="Patrimônio" value={fmt.brl(tot.valor)} sub={`${posicoes.length} ativo${posicoes.length === 1 ? '' : 's'}`} />
-        <Kpi label="Variação do dia" value={`${tot.varDia >= 0 ? '+' : ''}${fmt.brl(tot.varDia)}`} className={signClass(tot.varDia)} sub={signed(tot.varDiaPct)} />
-        <Kpi label="Resultado total" value={`${tot.resultado >= 0 ? '+' : ''}${fmt.brl(tot.resultado)}`} className={signClass(tot.resultado)}
-          sub={`${signed(tot.resultadoPct)} sobre ${fmt.brl(tot.custo)} investidos`} />
-        <Kpi label="Renda passiva estimada" value={`${fmt.brl(tot.renda)}/mês`} sub={`DY da carteira ${fmt.pct(tot.dy)} · proventos dos últimos 12 meses`} />
+      <div className="hb-layout">
+        <label className="muted" style={{ fontSize: 13 }}>Layout
+          <select value={layout.preset} onChange={(e) => escolherLayout(e.target.value)} style={{ marginLeft: 6 }}>
+            {Object.entries(LAYOUTS).map(([k, l]) => <option key={k} value={k}>{l.nome}</option>)}
+          </select>
+        </label>
+        <button className="chip" onClick={() => setEditandoLayout((v) => !v)}>{editandoLayout ? 'Fechar edição' : 'Editar painéis'}</button>
       </div>
-      )}
-
-      <div className="grid two" style={{ marginBottom: 16 }}>
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <h2 style={{ margin: 0 }}>Valor da carteira</h2>
-            <div className="seg">
-              {PERIODOS.map((p) => <button key={p.k} className={periodo === p.k ? 'on' : ''} title={TITULOS[p.k]} onClick={() => setPeriodo(p.k)}>{p.l}</button>)}
+      {editandoLayout && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Painéis desta tela · marque, desmarque e reordene</div>
+          {layout.ordem.map((id, i) => (
+            <div key={id} className="hb-layout-item">
+              <label><input type="checkbox" checked={!layout.ocultos.includes(id)} onChange={() => alternarPainel(id)} /> {PAINEIS[id]}</label>
+              <span>
+                <button className="chip" disabled={i === 0} onClick={() => moverPainel(i, -1)} aria-label={`Subir ${PAINEIS[id]}`}>↑</button>
+                <button className="chip" disabled={i === layout.ordem.length - 1} onClick={() => moverPainel(i, 1)} aria-label={`Descer ${PAINEIS[id]}`}>↓</button>
+              </span>
             </div>
-          </div>
-          {serie ? (
-            <>
-              <div className="muted" style={{ fontSize: 13, margin: '6px 0' }}>
-                {per.l}: <b className={`num ${signClass(fim - inicio)}`}>{fim - inicio >= 0 ? '+' : ''}{fmt.brl(fim - inicio)} ({signed((fim / inicio - 1) * 100)})</b>
-                {' '}· quantidades de hoje aplicadas aos preços de cada momento
-              </div>
-              <MultiLineChart datas={serie.datas} series={[{ nome: 'Carteira', valores: serie.valores, cor: 'var(--series-1)' }]}
-                fmtY={(v) => fmt.brl(v)} label="Valor da carteira no período"
-                refs={tot.custo ? [{ y: tot.custo, label: 'Custo' }] : []} height={240} />
-            </>
-          ) : <div className="empty">{erroSerie || (posicoes.length ? 'Carregando histórico…' : 'Adicione ativos para ver a evolução.')}</div>}
+          ))}
+          <label className="muted" style={{ fontSize: 13, display: 'block', marginTop: 8 }}>Mostrar nas posições e na alocação
+            <select value={layout.filtro || ''} onChange={(e) => salvarLayout({ ...layout, preset: 'personalizado', filtro: e.target.value || null })} style={{ marginLeft: 6 }}>
+              <option value="">todas as classes</option>
+              {Object.entries(FILTROS).map(([k, f]) => <option key={k} value={k}>{f.nome}</option>)}
+            </select>
+          </label>
         </div>
-        <div className="card">
-          <h2 style={{ marginTop: 0 }}>Alocação</h2>
-          <div className="stack" aria-hidden="true">
-            {linhas.filter((l) => l.valor > 0).map((l) => <div key={l.ticker} style={{ width: `${(l.valor / tot.valor) * 100}%`, background: cor(l.i) }} title={`${l.ticker} ${fmt.pct((l.valor / tot.valor) * 100, 1)}`} />)}
-          </div>
-          <div className="hb-aloc">
-            {linhas.filter((l) => l.valor > 0).sort((a, b) => b.valor - a.valor).map((l) => (
-              <div key={l.ticker}><span><i className="dot" style={{ background: cor(l.i) }} />{l.ticker}</span><b className="num">{fmt.pct((l.valor / tot.valor) * 100, 1)}</b></div>
-            ))}
-          </div>
-          <div className="eyebrow" style={{ margin: '14px 0 6px' }}>Por classe</div>
-          <div className="hb-aloc">
-            {classes.map(([c, v]) => (
-              <div key={c}><span>{c}</span><b className="num">{fmt.pct(tot.valor ? (v / tot.valor) * 100 : 0, 1)} · {fmt.big(v)}</b></div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {posicoes.length > 0 && (
-        <Proventos linhas={linhas} provs={provs} tot={tot} metaRenda={carteira.meta_renda} transacoes={transacoes} recebidos={desemp?.proventos_recebidos} agenda={agenda}
-          setMetaRenda={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, meta_renda: v } : c)) }))} />
       )}
-
-      {posicoes.length > 0 && tot.cotado && (
-        <Rebalanceamento linhas={linhas} tot={tot} alvos={carteira.alvos} tolerancia={carteira.tolerancia ?? 5}
-          setAlvos={(al) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, alvos: al } : c)) }))}
-          setTolerancia={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, tolerancia: v } : c)) }))}
-          congelados={carteira.congelados || {}}
-          setCongelados={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, congelados: v } : c)) }))} />
-      )}
-
-      {posicoes.length > 0 && (
-        <Alertas alertas={carteira.alertas || []} linhas={linhas}
-          setAlertas={(al) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, alertas: al } : c)) }))} />
-      )}
-
-      <Operacoes transacoes={transacoes} setTransacoes={setTransacoes}
-        onImportarB3={(ops, arquivo) => criar(`B3 · ${arquivo.replace(/\.(xlsx|xls|csv)$/i, '')}`, [], ops)} />
-
-      <Desempenho transacoes={transacoes} d={desemp} erro={erroDesemp} />
-
-      <ImpostoVendas d={desemp} />
-
-      <Declaracao irpf={desemp?.irpf} />
-
-      <div className="card">
-        <h2 style={{ marginTop: 0 }}>Posições</h2>
-        <div className="table-wrap cartoes" style={{ border: 0 }}>
-          <table>
-            <thead>
-              <tr>
-                {th('ticker', 'Ativo', 'txt')}{th('quantidade', 'Qtd.')}{th('preco_medio', 'Preço médio')}{th('preco', 'Preço')}
-                {th('var_pct', 'Dia %')}{th('var_dia', 'Dia R$')}{th('valor', 'Valor')}{th('peso', 'Peso')}
-                {th('resultado', 'Resultado')}{th('resultado_pct', 'Result. %')}{th('dy', 'DY 12m')}{th('yoc', 'YoC')}{th('renda_mes', 'Renda/mês')}
-                <th aria-label="Remover" />
-              </tr>
-            </thead>
-            <tbody>
-              {ordenadas.map((l) => (
-                <tr key={l.ticker} onClick={() => l.codigo && TIPO_ROTA[l.tipo] && onOpen(TIPO_ROTA[l.tipo], l.codigo)} style={{ cursor: l.codigo ? 'pointer' : 'default' }}>
-                  <td className="txt">
-                    <span className="dot" style={{ background: cor(l.i) }} /><span className="tk">{l.ticker}</span>
-                    {l.tipo && <span className="badge" style={{ marginLeft: 6 }}>{CLASSES[l.tipo]}</span>}
-                    <span className="nm">{l.erro || l.nome}</span>
-                  </td>
-                  <td className="num">{qtdFmt(l.quantidade)}</td>
-                  <td className="num">{fmt.preco(l.preco_medio)}</td>
-                  <td className="num"><b>{l.preco != null ? fmt.preco(l.preco) : '…'}</b></td>
-                  <td className={`num ${signClass(l.var_pct)}`}>{signed(l.var_pct)}</td>
-                  <td className={`num ${signClass(l.var_dia)}`}>{l.var_dia != null ? fmt.brl(l.var_dia) : '—'}</td>
-                  <td className="num">{fmt.brl(l.valor)}</td>
-                  <td className="num">{l.valor != null && tot.valor ? fmt.pct((l.valor / tot.valor) * 100, 1) : '—'}</td>
-                  <td className={`num ${signClass(l.resultado)}`}>{l.resultado != null ? fmt.brl(l.resultado) : '—'}</td>
-                  <td className={`num ${signClass(l.resultado_pct)}`}>{signed(l.resultado_pct)}</td>
-                  <td className="num">{fmt.pct(l.dy)}</td>
-                  <td className="num" title="Yield on cost: proventos de 12 meses ÷ preço médio">{fmt.pct(l.yoc)}</td>
-                  <td className="num">{l.renda_mes ? fmt.brl(l.renda_mes) : '—'}</td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <button className="chip" style={{ padding: '0 6px' }} aria-label={`Remover ${l.ticker}`} onClick={() => remover(l.ticker)}>✕</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!posicoes.length && <div className="empty">Carteira vazia — registre a primeira compra em Operações, acima.</div>}
-        </div>
-        <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-          Quantidades fracionárias valem para cripto (ex.: 0,0012 BTC-BRL) e renda fixa (lançada em reais). Posições = operações pelo custo médio. Renda estimada = proventos pagos nos últimos 12 meses ÷ 12 (Yahoo Finance; sem cripto).
-          Somente acompanhamento: não envia ordens.
-        </p>
-      </div>
+      {layout.ordem.filter((id) => !layout.ocultos.includes(id)).map((id) => <React.Fragment key={id}>{paineis[id]}</React.Fragment>)}
     </>
   )
 }
