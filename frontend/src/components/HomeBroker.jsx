@@ -520,7 +520,9 @@ export default function HomeBroker({ onOpen, onSimular }) {
       {posicoes.length > 0 && tot.cotado && (
         <Rebalanceamento linhas={linhas} tot={tot} alvos={carteira.alvos} tolerancia={carteira.tolerancia ?? 5}
           setAlvos={(al) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, alvos: al } : c)) }))}
-          setTolerancia={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, tolerancia: v } : c)) }))} />
+          setTolerancia={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, tolerancia: v } : c)) }))}
+          congelados={carteira.congelados || {}}
+          setCongelados={(v) => atualizarEstado((e) => ({ ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, congelados: v } : c)) }))} />
       )}
 
       {posicoes.length > 0 && (

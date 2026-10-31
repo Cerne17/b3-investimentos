@@ -92,3 +92,30 @@ def test_indice_prefixado_e_cdi(monkeypatch):
     assert pre.iloc[-1] == pytest.approx(1.13, rel=1e-9)  # 252 dias úteis depois da base
     cdi110 = rendafixa.indice("CDI-110")
     assert cdi110.iloc[-1] == pytest.approx((1 + 0.0005 * 1.1) ** 252, rel=1e-9)
+
+
+def test_aportar_com_vendas_e_congelados(monkeypatch):
+    precos = {"A": 10.0, "B": 100.0, "C": 50.0}
+    monkeypatch.setattr(portfolio, "cotacao", lambda t: {"preco": precos[t]})
+    # A muito acima do alvo: com vendas, vende A e compra B/C sem dinheiro novo
+    r = portfolio.aportar(["A", "B", "C"], [1 / 3] * 3, [300, 0, 0], 0, permitir_venda=True, precos_medios=[8, 0, 0])
+    op = {a["ticker"]: a for a in r["ativos"]}
+    assert op["A"]["operacao"] == "venda" and op["B"]["operacao"] == "compra" and op["C"]["operacao"] == "compra"
+    assert r["vendas"] >= r["compras"] - 1e-6 and r["lucro_vendas"] == pytest.approx(-op["A"]["comprar"] * 2)
+    # "manter" não vende nem compra; "nao_comprar" não recebe aporte
+    r = portfolio.aportar(["A", "B", "C"], [1 / 3] * 3, [300, 0, 0], 0, permitir_venda=True, congelados={"A": "manter"})
+    assert {a["ticker"]: a["comprar"] for a in r["ativos"]}["A"] == 0
+    r = portfolio.aportar(["A", "B", "C"], [1 / 3] * 3, [0, 10, 10], 600, congelados={"A": "nao_comprar"})
+    assert {a["ticker"]: a["comprar"] for a in r["ativos"]}["A"] == 0 and r["compras"] > 0
+
+
+def test_monte_carlo_congelado_nao_recebe_aportes(monkeypatch):
+    idx = pd.bdate_range("2020-01-01", periods=600)
+    d1 = 1.01 ** (1 / 21) - 1
+    R = pd.DataFrame({"X": np.full(600, d1), "Y": np.zeros(600)}, index=idx)  # X rende 1% a.m., Y fica parado
+    monkeypatch.setattr(montecarlo, "retornos_alinhados", lambda t, p: (R[t], [None] * len(t), 252))
+    monkeypatch.setattr(montecarlo, "proventos_alinhados", lambda t, s, R_: R_ * 0)
+    r = montecarlo.simular_carteira(["X", "Y"], [0.5, 0.5], 10000, 1000, 1, 200, benchmark=None, congelados=["Y"])
+    # Y congelado: seus R$ 5 mil ficam parados; X recebe os R$ 5 mil + todos os aportes rendendo 1% a.m.
+    esperado = 5000 + 5000 * 1.01 ** 12 + 1000 * sum(1.01 ** k for k in range(12))
+    assert r["final"]["p50"] == pytest.approx(esperado, rel=2e-3)

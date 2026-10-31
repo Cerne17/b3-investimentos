@@ -1,10 +1,12 @@
 import React, { useState } from 'react'
 import { api } from '../api.js'
 import { fmt, signClass } from '../format.js'
+import ResultadoAporte from './ResultadoAporte.jsx'
 
 // Pesos-alvo da carteira: desvio de cada ativo, aviso quando passa da tolerância e o aporte que corrige (só compras).
-export default function Rebalanceamento({ linhas, tot, alvos, setAlvos, tolerancia = 5, setTolerancia }) {
+export default function Rebalanceamento({ linhas, tot, alvos, setAlvos, tolerancia = 5, setTolerancia, congelados = {}, setCongelados }) {
   const [aporte, setAporte] = useState('')
+  const [vender, setVender] = useState(false)
   const [sugestao, setSugestao] = useState(null)
   const [erro, setErro] = useState(null)
   const definido = alvos && Object.keys(alvos).length > 0
@@ -20,7 +22,9 @@ export default function Rebalanceamento({ linhas, tot, alvos, setAlvos, toleranc
     setErro(null); setSugestao(null)
     api.aporte({
       tickers, pesos: tickers.map((t) => alvoDe(t) / 100),
-      quantidades: tickers.map((t) => linhas.find((l) => l.ticker === t)?.quantidade || 0), aporte: Number(aporte),
+      quantidades: tickers.map((t) => linhas.find((l) => l.ticker === t)?.quantidade || 0), aporte: Number(aporte) || 0,
+      permitir_venda: vender, congelados: Object.keys(congelados).length ? congelados : null,
+      precos_medios: tickers.map((t) => linhas.find((l) => l.ticker === t)?.preco_medio || 0),
     }).then(setSugestao).catch((e) => setErro(e.message))
   }
 
@@ -47,7 +51,7 @@ export default function Rebalanceamento({ linhas, tot, alvos, setAlvos, toleranc
             : <p className="muted" style={{ fontSize: 13 }}>Todos os ativos dentro de {fmt.num(tolerancia, 1)} p.p. do alvo.</p>}
           <div className="table-wrap cartoes" style={{ border: 0 }}>
             <table>
-              <thead><tr><th className="txt">Ativo</th><th>Hoje</th><th>Alvo (%)</th><th>Desvio</th><th>Para o alvo</th></tr></thead>
+              <thead><tr><th className="txt">Ativo</th><th>Hoje</th><th>Alvo (%)</th><th>Desvio</th><th>Para o alvo</th><th className="txt" title="Ativos que você não pode ou não quer comprar">Congelar</th></tr></thead>
               <tbody>
                 {tickers.map((t) => {
                   const d = atual(t) - alvoDe(t)
@@ -61,6 +65,12 @@ export default function Rebalanceamento({ linhas, tot, alvos, setAlvos, toleranc
                       </td>
                       <td className={`num ${Math.abs(d) > tolerancia ? signClass(-Math.abs(d)) : ''}`}>{d >= 0 ? '+' : ''}{fmt.num(d, 1)} p.p.</td>
                       <td className="num">{fmt.brl((alvoDe(t) / 100) * tot.valor - valor(t))}</td>
+                      <td className="txt">
+                        <select value={congelados[t] || ''} aria-label={`Congelar ${t}`}
+                          onChange={(e) => { const n = { ...congelados }; if (e.target.value) n[t] = e.target.value; else delete n[t]; setCongelados(n) }}>
+                          <option value="">livre</option><option value="nao_comprar">não comprar</option><option value="manter">manter</option>
+                        </select>
+                      </td>
                     </tr>
                   )
                 })}
@@ -69,18 +79,14 @@ export default function Rebalanceamento({ linhas, tot, alvos, setAlvos, toleranc
           </div>
           {Math.abs(soma - 100) > 0.5 && <p className="muted" style={{ fontSize: 12 }}>Os alvos somam {fmt.num(soma, 1)}%: são normalizados para 100%.</p>}
           <form className="filters" style={{ marginTop: 8 }} onSubmit={(e) => { e.preventDefault(); sugerir() }}>
-            <label className="field">Aporte (R$)<input type="number" min="0" step="100" value={aporte} onChange={(e) => setAporte(e.target.value)} /></label>
-            <button className="btn primary" disabled={!(Number(aporte) > 0)}>Onde aportar</button>
+            <label className="field">Aporte (R$)<input type="number" min="0" step="100" value={aporte} placeholder={vender ? '0' : ''} onChange={(e) => setAporte(e.target.value)} /></label>
+            <label className="field" title="Vende o que passou do alvo para comprar o que ficou abaixo">
+              <span><input type="checkbox" checked={vender} onChange={(e) => { setVender(e.target.checked); setSugestao(null) }} /> Permitir vendas</span>
+            </label>
+            <button className="btn primary" disabled={!(Number(aporte) > 0) && !vender}>{vender ? 'Rebalancear' : 'Onde aportar'}</button>
           </form>
           {erro && <div className="alert">{erro}</div>}
-          {sugestao && (
-            <div style={{ fontSize: 13 }}>
-              {sugestao.ativos.filter((a) => a.valor_compra > 0).map((a) => (
-                <div key={a.ticker}>Comprar <b className="num">{a.fracionario ? fmt.num(a.comprar, a.comprar < 1 ? 6 : 2) : a.comprar}</b> {a.ticker} ({fmt.brl(a.valor_compra)})</div>
-              ))}
-              <div className="muted">Fora do alvo: {sugestao.fora_do_alvo_antes != null ? `${fmt.pct(sugestao.fora_do_alvo_antes, 1)} → ` : ''}{fmt.pct(sugestao.fora_do_alvo_depois, 1)} da carteira{sugestao.sobra > 0.01 ? ` · sobram ${fmt.brl(sugestao.sobra)}` : ''}. Só compras, sem vender.</div>
-            </div>
-          )}
+          {sugestao && <ResultadoAporte r={sugestao} />}
         </>
       )}
     </div>

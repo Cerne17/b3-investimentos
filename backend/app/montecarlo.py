@@ -126,6 +126,7 @@ def simular_carteira(
     anos_saque: float = 0,
     saque_mensal: float = 0,
     benchmark: str | None = "IBOV",
+    congelados: list[str] | None = None,
 ) -> dict:
     """proventos: "reinvestir" (retorno total) ou "sacar" (o patrimônio cresce só pelo preço; o provento é renda).
     meta_tipo: "patrimonio" (valor final) ou "renda" (renda mensal média dos últimos 12 meses do horizonte).
@@ -133,7 +134,9 @@ def simular_carteira(
     anos_saque, saque_mensal: depois de `anos` acumulando, saca `saque_mensal` (em reais de hoje se houver
     inflação) por `anos_saque` anos; o patrimônio que zera fica zerado (o dinheiro acabou).
     benchmark: IBOV, IFIX, S&P 500, CDI ou um ticker — simulado com os mesmos sorteios (mesmas datas no bootstrap;
-    choques correlacionados nos métodos paramétricos) e os mesmos aportes/saques; None desliga."""
+    choques correlacionados nos métodos paramétricos) e os mesmos aportes/saques; None desliga.
+    congelados: ativos que você mantém mas não compra (ex.: impedimento de comprar ações): começam com o peso
+    informado, crescem sozinhos e não recebem aportes nem rebalanceamento; os aportes vão só para os demais."""
     if proventos not in ("reinvestir", "sacar"):
         raise ValueError("proventos deve ser 'reinvestir' ou 'sacar'.")
     if meta_tipo not in ("patrimonio", "renda"):
@@ -155,13 +158,24 @@ def simular_carteira(
     R_df, series, dias_ano = retornos_alinhados(tickers, periodo)
     exigir_historico(R_df, tickers, series, 120)
     Dm = proventos_alinhados(tickers, series, R_df).to_numpy()
-    r = R_df.to_numpy() @ w  # carteira rebalanceada aos pesos-alvo (retorno total)
-    d = Dm @ w  # parte do retorno que veio de proventos
+    Rm = R_df.to_numpy()
     tx = impostos.aliquotas(tickers) if ir else None
     if ir:  # provento chega líquido do IR retido na fonte
         tp = np.array(tx["proventos"])
-        r, d = r - Dm @ (w * tp), Dm @ (w * (1 - tp))
-    del Dm
+        Rm, Dm = Rm - Dm * tp, Dm * (1 - tp)
+    r = Rm @ w  # carteira rebalanceada aos pesos-alvo (retorno total)
+    d = Dm @ w  # parte do retorno que veio de proventos
+    # congelados: dois "baldes" — o congelado só cresce; o ativo recebe aportes e é rebalanceado
+    cong = np.array([t in {rendafixa.normalizar(c) for c in (congelados or [])} for t in tickers])
+    s_cong = float(w[cong].sum()) if cong.any() else 0.0
+    if cong.any() and s_cong < 1 - 1e-9:
+        r_ativo, d_ativo = Rm[:, ~cong] @ (w[~cong] / (1 - s_cong)), Dm[:, ~cong] @ (w[~cong] / (1 - s_cong))
+        r_cong = Rm[:, cong] @ (w[cong] / s_cong)
+    else:
+        if cong.any():
+            raise ValueError("Congele só parte da carteira: os aportes precisam de algum ativo que possa receber compras.")
+        r_ativo, d_ativo, r_cong = r, d, None
+    del Dm, Rm
 
     macc = max(1, round(anos * 12))  # meses acumulando
     msaq = max(0, round(anos_saque * 12)) if saque_mensal > 0 else 0
@@ -187,13 +201,20 @@ def simular_carteira(
     sim_b = None
     if metodo == "bootstrap":
         idx = _indices_bootstrap(len(r), dias, n, rng)
-        sim, sim_d = r[idx].astype(np.float32), d[idx].astype(np.float32)
+        sim, sim_d = r_ativo[idx].astype(np.float32), d_ativo[idx].astype(np.float32)
+        sim_c = r_cong[idx].astype(np.float32) if r_cong is not None else None
         if rb is not None:
             sim_b = rb[idx].astype(np.float32)
         del idx
     else:
         z = _choques(metodo, n, dias, rng)
-        sim, sim_d = _gerar(r, dias, n, metodo, rng, z), np.full((1, dias), d.mean(), np.float32)
+        sim, sim_d = _gerar(r_ativo, dias, n, metodo, rng, z), np.full((1, dias), d_ativo.mean(), np.float32)
+        sim_c = None
+        if r_cong is not None:  # balde congelado com choque correlacionado ao ativo
+            la, lc = np.log1p(r_ativo), np.log1p(r_cong)
+            rho_c = float(np.corrcoef(la, lc)[0, 1]) if lc.std() > 0 else 0.0
+            zc = rho_c * z + math.sqrt(max(0.0, 1 - rho_c ** 2)) * _choques(metodo, n, dias, rng)
+            sim_c = np.expm1(lc.mean() + lc.std(ddof=1) * zc).astype(np.float32)
         if rb is not None:  # choque do índice correlacionado com o da carteira
             lr, lb = np.log1p(r), np.log1p(rb)
             rho = float(np.corrcoef(lr, lb)[0, 1]) if lb.std() > 0 else 0.0
@@ -205,6 +226,8 @@ def simular_carteira(
     Gb = por_mes(sim_b) / (1 + inflacao) ** (1 / 12) if sim_b is not None else None
     del sim_b
     G = por_mes(sim - sim_d) if sacar else G_total  # sacando, o patrimônio cresce só pelo preço
+    G_cong = por_mes(sim_c) if sim_c is not None else None
+    del sim_c
     # rendimento em proventos de cada mês, sobre o patrimônio do início do mês
     acum_d = np.concatenate([np.zeros((sim_d.shape[0], 1)), np.cumsum(sim_d, axis=1, dtype=np.float64)], axis=1)
     Y = np.broadcast_to(acum_d[:, limites[1:]] - acum_d[:, limites[:-1]], (n, meses))
@@ -215,6 +238,8 @@ def simular_carteira(
     deflator = (1 + inflacao) ** (1 / 12)
     G = G / deflator
     G_total = G_total / deflator
+    if G_cong is not None:
+        G_cong = G_cong / deflator
     # V = V0·I + aporte·B para os mesmos sorteios (I: crescimento acumulado; B: aportes de 1 real acumulados)
     # Na aposentadoria, W acumula saques de 1 real: V = V0·I + aporte·B - saque·W
     I = np.ones((n, meses + 1))
@@ -225,6 +250,12 @@ def simular_carteira(
         B[:, m + 1] = B[:, m] * G[:, m] + (1 if m < macc else 0)
         if msaq:
             W[:, m + 1] = W[:, m] * G[:, m] + (1 if m >= macc else 0)
+    if G_cong is not None:
+        # capital inicial = parte congelada (só cresce) + parte ativa; aportes e saques mexem só na ativa
+        I_c = np.concatenate([np.ones((n, 1)), np.cumprod(G_cong, axis=1)], axis=1)
+        I = s_cong * I_c + (1 - s_cong) * I
+        G = I[:, 1:] / I[:, :-1]  # crescimento efetivo do capital inicial (usado nos saques com IR)
+        G_total = G
     V = valor_inicial * I + aporte_mensal * B
     vivo = np.ones((n, meses + 1), bool)
     s_max_ir = None
@@ -331,7 +362,7 @@ def simular_carteira(
             "anos_saque": anos_saque if msaq else 0, "saque_mensal": saque_mensal if msaq else 0, "simulacoes": n, "metodo": metodo,
             "metodo_descricao": METODOS[metodo], "periodo": periodo, "inflacao": inflacao, "taxa_livre_risco": rf,
             "valores_reais": inflacao > 0,
-            "dias_ano": dias_ano, "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"),
+            "dias_ano": dias_ano, "congelados": [t for t, c in zip(tickers, cong) if c] or None, "peso_congelado": round(s_cong * 100, 2), "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"),
             "dias_historico": len(R_df),
             "retorno_hist_anual": round(float((1 + r).prod() ** (dias_ano / len(r)) - 1) * 100, 2),
             "dy_hist_anual": round(float(d.mean() * dias_ano) * 100, 2),

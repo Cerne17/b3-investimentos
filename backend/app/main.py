@@ -298,6 +298,8 @@ class PedidoCarteira(BaseModel):
     estimativa: Literal["historica", "robusta", "reamostrada"] = Field(
         "historica", description="historica; robusta = Ledoit-Wolf + James-Stein (alvo de Sharpe igual); reamostrada = média dos pesos em 30 reamostragens (Michaud)")
     quantidades_atuais: list[float] | None = Field(None, description="Cotas que você já tem, uma por ativo: inclui sua carteira atual na comparação")
+    congelados: dict[str, Literal["nao_comprar", "manter"]] | None = Field(
+        None, examples=[{"PETR4": "nao_comprar"}], description="Ativos que não recebem compra (peso até o de hoje) ou ficam como estão; usa quantidades_atuais")
     ir: bool = Field(False, description="Otimiza com retornos líquidos de IR: ganho de capital 15% (FII 20%), proventos de ETF 15%, renda fixa livre de risco x 0,85")
     dy_min: float | None = Field(None, ge=0, le=50, examples=[8], description="Dividend yield mínimo da carteira (% a.a. dos últimos 12 meses); restrição em todas as carteiras otimizadas")
 
@@ -332,7 +334,10 @@ class PedidoAporte(BaseModel):
     tickers: list[str] = Field(..., min_length=1, examples=[["MXRF11", "BOVA11", "CDI"]])
     pesos: list[float] = Field(..., examples=[[0.3, 0.3, 0.4]], description="Pesos-alvo (normalizados)")
     quantidades: list[float] | None = Field(None, examples=[[100, 2, 500]], description="Cotas que você já tem (vazio = carteira nova)")
-    aporte: float = Field(..., gt=0, examples=[1000], description="Dinheiro novo deste mês (R$)")
+    aporte: float = Field(..., ge=0, examples=[1000], description="Dinheiro novo deste mês (R$); pode ser 0 com permitir_venda")
+    permitir_venda: bool = Field(False, description="Vende o que passou do alvo para comprar o que ficou abaixo (rebalanceamento completo)")
+    congelados: dict[str, Literal["nao_comprar", "manter"]] | None = Field(None, examples=[{"PETR4": "nao_comprar"}])
+    precos_medios: list[float] | None = Field(None, description="Preço médio de cada ativo: informa o lucro das vendas")
 
 
 @app.post("/api/carteira/aporte", tags=["Carteira"], summary="Onde aportar: compras que aproximam a carteira do alvo")
@@ -340,7 +345,7 @@ def onde_aportar(p: PedidoAporte):
     """Só compras, sem vender: com o aporte, quantas cotas comprar de cada ativo para chegar o mais perto possível
     dos pesos-alvo (ex.: os de uma carteira otimizada), a partir das quantidades atuais e do preço de agora."""
     try:
-        return portfolio.aportar(p.tickers, p.pesos, p.quantidades, p.aporte)
+        return portfolio.aportar(p.tickers, p.pesos, p.quantidades, p.aporte, p.permitir_venda, p.congelados, p.precos_medios)
     except (ValueError, LookupError) as e:
         raise HTTPException(400, str(e))
 
@@ -410,6 +415,7 @@ class PedidoMCCarteira(BaseModel):
     meta: float | None = Field(None, gt=0, examples=[100000], description="Patrimônio-alvo ou renda mensal-alvo (ver meta_tipo), em reais de hoje se houver inflação")
     meta_tipo: Literal["patrimonio", "renda"] = Field("patrimonio", description="patrimonio = valor final; renda = renda mensal média dos últimos 12 meses do horizonte")
     proventos: Literal["reinvestir", "sacar"] = Field("reinvestir", description="reinvestir = retorno total; sacar = o patrimônio cresce só pelo preço e os proventos viram renda")
+    congelados: list[str] | None = Field(None, examples=[["PETR4"]], description="Ativos mantidos sem compra: crescem sozinhos, sem aportes nem rebalanceamento")
     benchmark: str | None = Field("IBOV", description="Índice simulado com os mesmos sorteios e aportes: IBOV, IFIX, S&P 500, CDI ou um ticker; null desliga")
     anos_saque: float = Field(0, ge=0, le=50, description="Aposentadoria: anos sacando depois dos `anos` acumulando")
     saque_mensal: float = Field(0, ge=0, examples=[5000], description="Saque mensal na aposentadoria (reais de hoje se houver inflação)")

@@ -186,6 +186,7 @@ def otimizar_carteira(
     ir: bool = False,
     estimativa: Literal["historica", "robusta", "reamostrada"] = "historica",
     quantidades_atuais: list[float] | None = None,
+    congelados: dict[str, str] | None = None,
 ) -> dict:
     """Otimização de carteira (Markowitz e variações) com alocação em cotas inteiras ao preço atual.
     filosofia: value_conservador | renda | defensivo | equilibrado | crescimento (define os indicadores).
@@ -195,7 +196,7 @@ def otimizar_carteira(
     Pesos em fração (0.35 = 35%). dy_min: dividend yield mínimo da carteira em % a.a. (ex.: 8).
     Cada carteira traz a renda mensal estimada da alocação. Sempre inclui a carteira de pesos iguais como referência."""
     r = portfolio.otimizar(tickers, valor, peso_min, peso_max, indicadores, filosofia, periodo, dy_min=dy_min, ir=ir, estimativa=estimativa,
-                           quantidades_atuais=quantidades_atuais)
+                           quantidades_atuais=quantidades_atuais, congelados=congelados)
     r.pop("fronteira", None)
     return r
 
@@ -217,6 +218,7 @@ def simular_carteira_monte_carlo(
     anos_saque: float = 0,
     saque_mensal: float = 0,
     benchmark: str | None = "IBOV",
+    congelados: list[str] | None = None,
 ) -> dict:
     """Monte Carlo do patrimônio de uma carteira (retorno total, rebalanceada aos pesos; aporte no fim do mês).
     Retorna percentis do valor final, probabilidade de perda e de superar a renda fixa, CAGR e drawdown por cenário;
@@ -232,7 +234,7 @@ def simular_carteira_monte_carlo(
     carteira terminar melhor que o índice no mesmo cenário."""
     r = montecarlo.simular_carteira(tickers, pesos, valor_inicial, aporte_mensal, anos, simulacoes, metodo, meta=meta,
                                     inflacao=inflacao, proventos=proventos, meta_tipo=meta_tipo, ir=ir,
-                                    anos_saque=anos_saque, saque_mensal=saque_mensal, benchmark=benchmark)
+                                    anos_saque=anos_saque, saque_mensal=saque_mensal, benchmark=benchmark, congelados=congelados)
     for k in ("bandas", "caminhos", "histograma", "investido", "renda_fixa", "datas"):
         r.pop(k, None)
     r["renda"].pop("bandas", None)
@@ -253,11 +255,13 @@ def simular_preco_monte_carlo(ticker: str, dias: int = 252, metodo: Literal["boo
 
 
 @mcp.tool()
-def onde_aportar(tickers: list[str], pesos: list[float], aporte: float, quantidades: list[float] | None = None) -> dict:
+def onde_aportar(tickers: list[str], pesos: list[float], aporte: float, quantidades: list[float] | None = None,
+                 permitir_venda: bool = False, congelados: dict[str, str] | None = None) -> dict:
     """Só compras, sem vender: quantas cotas comprar de cada ativo com o `aporte` (R$) para chegar o mais perto dos
     `pesos`-alvo (frações, ex.: de uma carteira otimizada), a partir das `quantidades` que a pessoa já tem.
+    permitir_venda=True: rebalanceamento completo, vendendo o que passou do alvo. congelados {ticker: "nao_comprar"|"manter"}.
     Cripto e renda fixa (CDI, TD-IPCA-2035...) compram o valor exato; os demais, cotas inteiras."""
-    return portfolio.aportar(tickers, pesos, quantidades, aporte)
+    return portfolio.aportar(tickers, pesos, quantidades, aporte, permitir_venda, congelados)
 
 
 @mcp.tool()

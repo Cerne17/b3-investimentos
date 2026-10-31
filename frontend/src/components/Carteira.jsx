@@ -5,6 +5,7 @@ import { FrontierChart } from './Charts.jsx'
 import BuscaAtivo from './BuscaAtivo.jsx'
 import { novaCarteira } from '../lib/broker.js'
 import ImportarBroker from './ImportarBroker.jsx'
+import ResultadoAporte from './ResultadoAporte.jsx'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 const cor = (i) => CORES[i] || 'var(--text-muted)' // acima de 8 ativos a cor deixa de identificar; o rótulo sempre aparece
@@ -24,50 +25,44 @@ const LINHAS = [
   ['renda_risco', 'Renda por risco', (v) => fmt.num(v, 2), true],
 ]
 
-function OndeAportar({ c, tickers, aporte, qtdAtuais }) {
+function OndeAportar({ c, tickers, aporte, qtdAtuais, congelados }) {
   const [r, setR] = useState(null)
   const [erro, setErro] = useState(null)
   const [carregando, setCarregando] = useState(false)
+  const [vender, setVender] = useState(false)
   const calcular = () => {
     setCarregando(true); setErro(null)
-    api.aporte({ tickers, pesos: tickers.map((t) => c.pesos[t]), quantidades: tickers.map((t) => qtdAtuais[t] || 0), aporte: Number(aporte) })
+    api.aporte({ tickers, pesos: tickers.map((t) => c.pesos[t]), quantidades: tickers.map((t) => qtdAtuais[t] || 0), aporte: Number(aporte) || 0,
+      permitir_venda: vender, congelados: Object.keys(congelados).length ? congelados : null })
       .then(setR).catch((e) => setErro(e.message)).finally(() => setCarregando(false))
   }
-  useEffect(() => { setR(null) }, [aporte, JSON.stringify(qtdAtuais)])
-  if (!(Number(aporte) > 0)) return null
+  useEffect(() => { setR(null) }, [aporte, vender, JSON.stringify(qtdAtuais), JSON.stringify(congelados)])
+  const temPosicao = Object.keys(qtdAtuais).length > 0
+  if (!(Number(aporte) > 0) && !temPosicao) return null
   return (
     <div style={{ marginTop: 12 }}>
-      {!r && <button className="btn" onClick={calcular} disabled={carregando}>{carregando ? 'Calculando…' : `Onde aportar ${fmt.brl(Number(aporte))}`}</button>}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {!r && <button className="btn" onClick={calcular} disabled={carregando || (!(Number(aporte) > 0) && !vender)}>
+          {carregando ? 'Calculando…' : vender ? (Number(aporte) > 0 ? `Rebalancear com ${fmt.brl(Number(aporte))}` : 'Rebalancear (vendendo)') : `Onde aportar ${fmt.brl(Number(aporte) || 0)}`}</button>}
+        {temPosicao && (
+          <label className="muted" style={{ fontSize: 13 }} title="Vende o que passou do alvo para comprar o que ficou abaixo">
+            <input type="checkbox" checked={vender} onChange={(e) => setVender(e.target.checked)} /> Permitir vendas
+          </label>
+        )}
+      </div>
       {erro && <div className="alert">{erro}</div>}
       {r && (
         <>
-          <div className="eyebrow" style={{ marginBottom: 4 }}>Aporte de {fmt.brl(r.aporte)} · só compras</div>
-          <div className="cartoes"><table>
-            <thead><tr><th className="txt">Ativo</th><th title="Peso hoje">Hoje</th><th>Alvo</th><th>Comprar</th><th>Valor</th><th title="Peso depois da compra">Depois</th></tr></thead>
-            <tbody>
-              {r.ativos.map((x) => (
-                <tr key={x.ticker} style={{ cursor: 'default', opacity: x.valor_compra > 0 ? 1 : 0.6 }}>
-                  <td className="txt">{x.ticker}</td>
-                  <td className="num">{fmt.pct(x.peso_atual, 1)}</td>
-                  <td className="num">{fmt.pct(x.peso_alvo, 1)}</td>
-                  <td className="num"><b>{x.fracionario ? fmt.num(x.comprar, x.comprar < 1 ? 6 : 2) : x.comprar}</b></td>
-                  <td className="num">{fmt.brl(x.valor_compra)}</td>
-                  <td className="num">{fmt.pct(x.peso_depois, 1)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
-          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Usa {fmt.brl(r.usado)}{r.sobra > 0.01 ? ` (sobram ${fmt.brl(r.sobra)})` : ''} · fora do alvo: {r.fora_do_alvo_antes != null ? `${fmt.pct(r.fora_do_alvo_antes, 1)} → ` : ''}{fmt.pct(r.fora_do_alvo_depois, 1)} da carteira.
-            {!Object.keys(qtdAtuais).length && ' Sem posições atuais: importe do Home Broker para considerar o que você já tem.'}
-          </div>
+          <div className="eyebrow" style={{ margin: '6px 0 4px' }}>{vender ? 'Rebalanceamento' : 'Aporte'} de {fmt.brl(r.aporte)} · {vender ? 'com vendas' : 'só compras'}</div>
+          <ResultadoAporte r={r} />
+          {!temPosicao && <div className="muted" style={{ fontSize: 12 }}>Sem posições atuais: importe do Home Broker para considerar o que você já tem.</div>}
         </>
       )}
     </div>
   )
 }
 
-function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker, aporte, qtdAtuais, atual }) {
+function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker, aporte, qtdAtuais, congelados, atual }) {
   const a = c.alocacao
   return (
     <div className="card port-card" style={atual ? { borderColor: 'var(--accent, var(--series-1))' } : undefined}>
@@ -120,7 +115,7 @@ function CarteiraCard({ c, idx, tickers, melhor, valor, onSimular, onBroker, apo
           {onBroker && !atual && <button className="btn" onClick={() => onBroker(c)} title="Cria uma carteira no Home Broker com estas quantidades e o preço atual como preço médio">Acompanhar no Home Broker</button>}
         </div>
       )}
-      {!atual && <OndeAportar c={c} tickers={tickers} aporte={aporte} qtdAtuais={qtdAtuais || {}} />}
+      {!atual && <OndeAportar c={c} tickers={tickers} aporte={aporte} qtdAtuais={qtdAtuais || {}} congelados={congelados || {}} />}
     </div>
   )
 }
@@ -138,6 +133,8 @@ export default function Carteira({ onSimular, onBroker }) {
   const [ir, setIr] = useState(false)
   const [estimativa, setEstimativa] = useState('robusta')
   const [qtdAtuais, setQtdAtuais] = useState({}) // posições trazidas do Home Broker, para "onde aportar"
+  const [congelados, setCongelados] = useState({}) // {ticker: 'nao_comprar' | 'manter'}
+  const girarCongelado = (t) => setCongelados((c) => { const prox = { undefined: 'nao_comprar', nao_comprar: 'manter', manter: undefined }[c[t]]; const n = { ...c }; if (prox) n[t] = prox; else delete n[t]; return n })
   const [filosofia, setFilosofia] = useState('value_conservador')
   const [inds, setInds] = useState(['sharpe', 'sortino', 'calmar', 'renda_risco'])
   const [res, setRes] = useState(null)
@@ -168,6 +165,7 @@ export default function Carteira({ onSimular, onBroker }) {
         tickers, valor: Number(valor), peso_min: pmin / 100, peso_max: pmax / 100, periodo,
         taxa_livre_risco: rf / 100, indicadores: inds, filosofia: filosofia || null, dy_min: dyMin === '' ? null : Number(dyMin), ir, estimativa,
         quantidades_atuais: Object.keys(qtdAtuais).length ? tickers.map((t) => qtdAtuais[t] || 0) : null,
+        congelados: Object.keys(congelados).length ? congelados : null,
       }))
     } catch (e) { setErro(e.message); setRes(null) } finally { setRodando(false) }
   }
@@ -179,7 +177,7 @@ export default function Carteira({ onSimular, onBroker }) {
   }
   const tks = res?.parametros.tickers || tickers
   const acoes = {
-    valor: res?.parametros.valor, aporte, qtdAtuais,
+    valor: res?.parametros.valor, aporte, qtdAtuais, congelados,
     onSimular,
     onBroker: onBroker && ((c) => {
       const a = c.alocacao
@@ -204,11 +202,19 @@ export default function Carteira({ onSimular, onBroker }) {
         <div className="chips" style={{ gap: 8 }}>
           {tickers.map((t, i) => (
             <span key={t} className="sel-chip"><i style={{ background: cor(i) }} />{t}
+              <button onClick={() => girarCongelado(t)} title={`Congelar: ${{ nao_comprar: 'não comprar (só pode manter ou reduzir)', manter: 'manter como está' }[congelados[t]] || 'livre'} — clique para trocar`}
+                aria-label={`Congelar ${t}`} style={{ opacity: congelados[t] ? 1 : 0.45 }}>❄{congelados[t] === 'manter' ? '=' : congelados[t] ? '↓' : ''}</button>
               <button onClick={() => setTickers(tickers.filter((x) => x !== t))} aria-label={`Remover ${t}`}>✕</button>
             </span>
           ))}
           {!tickers.length && <span className="muted">Nenhum ativo selecionado.</span>}
         </div>
+        {Object.keys(congelados).length > 0 && (
+          <p className="muted" style={{ fontSize: 12, margin: '4px 0 0' }}>
+            ❄↓ não comprar: o peso fica no máximo o de hoje · ❄= manter: peso fixo no de hoje.
+            {!Object.keys(qtdAtuais).length && ' Importe a carteira do Home Broker para saber o peso de hoje (sem ela, congelados ficam com peso zero).'}
+          </p>
+        )}
 
         <div className="filters">
           <label className="field">Valor (R$)<input type="number" value={valor} min="1" onChange={(e) => setValor(e.target.value)} /></label>

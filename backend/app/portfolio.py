@@ -202,7 +202,8 @@ def _objetivo(nome: str, R, mu, cov, dy, rf, DIAS: int = DIAS):
 def _otimizar(fn, n, lo, hi, seed=0, extra=(), partidas=16):
     rng = np.random.default_rng(seed)
     cons = [{"type": "eq", "fun": lambda w: w.sum() - 1}, *extra]
-    bounds = [(lo, hi)] * n
+    lo, hi = np.broadcast_to(np.asarray(lo, float), n), np.broadcast_to(np.asarray(hi, float), n)  # limites por ativo
+    bounds = list(zip(lo, hi))
     inicios = [np.full(n, 1 / n)] + [rng.dirichlet(np.ones(n)) for _ in range(partidas - 1)]
     melhor = None
     for w0 in inicios:
@@ -284,7 +285,8 @@ def fronteira(mu, cov, lo, hi, pontos=30, extra=()):
     out = []
     for alvo in np.linspace(r0, r1, pontos):
         cons = cons_base + [{"type": "eq", "fun": lambda w, a=alvo: w @ mu - a}]
-        res = minimize(lambda w: w @ cov @ w, np.full(n, 1 / n), method="SLSQP", bounds=[(lo, hi)] * n, constraints=cons)
+        res = minimize(lambda w: w @ cov @ w, np.full(n, 1 / n), method="SLSQP",
+                       bounds=list(zip(np.broadcast_to(lo, n), np.broadcast_to(hi, n))), constraints=cons)
         if res.success:
             out.append({"retorno": float(alvo * 100), "volatilidade": float(math.sqrt(res.x @ cov @ res.x) * 100)})
     return out
@@ -362,6 +364,7 @@ def otimizar(
     ir: bool = False,
     estimativa: str = "historica",
     quantidades_atuais: list[float] | None = None,
+    congelados: dict[str, str] | None = None,
 ) -> dict:
     """dy_min: dividend yield mínimo da carteira em % a.a. (restrição em todas as carteiras otimizadas).
     ir: otimiza com retornos líquidos de IR — ganho de preço x (1 - alíquota de ganho da classe), proventos x
@@ -369,7 +372,9 @@ def otimizar(
     estimativa: historica | robusta (Ledoit-Wolf + James-Stein) | reamostrada (Michaud) — ver ESTIMATIVAS.
     As métricas mostradas são sempre as realizadas no histórico.
     quantidades_atuais: cotas que você já tem (uma por ativo) → a resposta traz `atual` (sua carteira de hoje, com as
-    mesmas métricas) e, em cada carteira otimizada, `distancia_atual` (% da carteira que precisaria mudar de lugar)."""
+    mesmas métricas) e, em cada carteira otimizada, `distancia_atual` (% da carteira que precisaria mudar de lugar).
+    congelados: {ticker: "nao_comprar" | "manter"} — ativos que você tem mas não pode/quer comprar (o peso fica no
+    máximo o de hoje) ou que ficam exatamente como estão; usa quantidades_atuais e o `valor` total."""
     if estimativa not in ESTIMATIVAS:
         raise ValueError(f"estimativa desconhecida: {estimativa} (use {', '.join(ESTIMATIVAS)})")
     tickers = list(dict.fromkeys(rendafixa.normalizar(t) for t in tickers if t.strip()))
@@ -409,16 +414,6 @@ def otimizar(
         cov_opt, mu_opt = cov_d * dias, m_d * dias
         R_opt = R - R.mean(axis=0) + m_d  # objetivos que usam a série (Sortino, Calmar...) também com a média encolhida
         info_est.update(encolhimento_cov=round(k, 3), encolhimento_retorno=round(c, 3))
-    extra = ()
-    if dy_min:
-        dy_possivel = float(_otimizar(lambda w: -(w @ dy), n, peso_min, peso_max) @ dy)
-        if dy_possivel < dy_min - 1e-6:
-            raise ValueError(
-                f"Inviável: com esses ativos e limites de peso o maior dividend yield possível é {dy_possivel:.2f}% a.a. "
-                f"(pedido: {dy_min:.2f}%). Reduza o DY mínimo, aumente o peso máximo ou inclua ativos pagadores."
-            )
-        extra = ({"type": "ineq", "fun": lambda w: w @ dy - dy_min},)
-
     # preço atual da cota (tempo real; cai para o último fechamento)
     precos = []
     for t, s in zip(tickers, series):
@@ -430,6 +425,32 @@ def otimizar(
 
     # cripto e renda fixa compram valores fracionários (renda fixa: em reais)
     frac = np.array([eh_cripto(t) or rendafixa.eh_renda_fixa(t) for t in tickers])
+
+    # limites por ativo: congelados não recebem compra ("nao_comprar": peso até o de hoje) ou ficam como estão
+    # ("manter": peso fixo no de hoje); o peso de hoje é o valor atual sobre o valor total da otimização
+    LO, HI = np.full(n, float(peso_min)), np.full(n, float(peso_max))
+    congelados = {rendafixa.normalizar(k): v for k, v in (congelados or {}).items()}
+    if congelados:
+        q0 = np.array(quantidades_atuais or [0] * n, float)
+        hoje_w = q0 * precos / valor if valor else np.zeros(n)
+        for i, t in enumerate(tickers):
+            modo = congelados.get(t)
+            if modo == "nao_comprar":
+                LO[i], HI[i] = 0.0, min(float(peso_max), max(hoje_w[i], 0.0))
+            elif modo == "manter":
+                LO[i] = HI[i] = min(1.0, hoje_w[i])
+        if LO.sum() > 1 + 1e-6 or HI.sum() < 1 - 1e-6:
+            raise ValueError("Inviável com os ativos congelados: o que fica fixo passa do valor total, ou o resto não "
+                             "consegue completar 100% com o peso máximo. Ajuste o valor, o peso máximo ou os congelados.")
+    extra = ()
+    if dy_min:
+        dy_possivel = float(_otimizar(lambda w: -(w @ dy), n, LO, HI) @ dy)
+        if dy_possivel < dy_min - 1e-6:
+            raise ValueError(
+                f"Inviável: com esses ativos e limites de peso o maior dividend yield possível é {dy_possivel:.2f}% a.a. "
+                f"(pedido: {dy_min:.2f}%). Reduza o DY mínimo, aumente o peso máximo ou inclua ativos pagadores."
+            )
+        extra = ({"type": "ineq", "fun": lambda w: w @ dy - dy_min},)
 
     def montar(nome, chave, w, descricao):
         aloc = alocar(w, precos, valor, peso_max, frac)
@@ -447,12 +468,12 @@ def otimizar(
     for i, ind in enumerate(indicadores):
         if amostras is not None:
             pesos = [_otimizar(_objetivo(ind, Rb, Rb.mean(axis=0) * dias, np.cov(Rb, rowvar=False) * dias, dy, rf, dias),
-                               n, peso_min, peso_max, seed=i, extra=extra, partidas=2) for Rb in amostras]
+                               n, LO, HI, seed=i, extra=extra, partidas=2) for Rb in amostras]
             w = np.mean(pesos, axis=0)
             w[w < 1e-3] = 0
             w = w / w.sum()
         else:
-            w = _otimizar(_objetivo(ind, R_opt, mu_opt, cov_opt, dy, rf, dias), n, peso_min, peso_max, seed=i, extra=extra)
+            w = _otimizar(_objetivo(ind, R_opt, mu_opt, cov_opt, dy, rf, dias), n, LO, HI, seed=i, extra=extra)
         carteiras.append(montar(INDICADORES[ind]["nome"], ind, w, INDICADORES[ind]["descricao"]))
     eq = np.full(n, 1 / n)
     iguais = montar("Pesos iguais", "iguais", eq, "Referência: mesmo peso em cada ativo.")
@@ -502,26 +523,32 @@ def otimizar(
 
     return {
         "parametros": {"tickers": tickers, "valor": valor, "peso_min": peso_min, "peso_max": peso_max, "periodo": periodo,
-                       "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores, "dy_min": dy_min, "ir": tabela_ir, "estimativa": info_est,
+                       "taxa_livre_risco": rf, "filosofia": filosofia, "indicadores": indicadores, "dy_min": dy_min, "ir": tabela_ir, "estimativa": info_est, "congelados": congelados or None,
                        "inicio": R_df.index[0].strftime("%Y-%m-%d"), "fim": R_df.index[-1].strftime("%Y-%m-%d"), "pregoes": len(R_df), "dias_ano": dias},
         "ativos": ativos,
         "correlacao": {"tickers": tickers, "matriz": np.corrcoef(R, rowvar=False).round(3).tolist()},
         "carteiras": carteiras,
         "pesos_iguais": iguais,
         "atual": atual,
-        "fronteira": fronteira(mu_opt, cov_opt, peso_min, peso_max, extra=extra),
+        "fronteira": fronteira(mu_opt, cov_opt, LO, HI, extra=extra),
     }
 
 
 # ---------- onde aportar ----------
 
-def aportar(tickers: list[str], pesos: list[float], quantidades: list[float] | None, aporte: float) -> dict:
-    """Compras (sem vender nada) que aproximam a carteira atual dos pesos-alvo usando só o aporte.
+def aportar(tickers: list[str], pesos: list[float], quantidades: list[float] | None, aporte: float,
+            permitir_venda: bool = False, congelados: dict[str, str] | None = None,
+            precos_medios: list[float] | None = None) -> dict:
+    """Operações que aproximam a carteira atual dos pesos-alvo.
 
-    1. alvo de cada ativo = peso x (valor atual + aporte); falta = alvo - valor atual (só o que está abaixo);
-    2. se as faltas somam mais que o aporte, todas encolhem na mesma proporção;
-    3. cripto e renda fixa compram o valor exato; os demais, cotas inteiras arredondadas para baixo e, com a sobra,
-       uma cota por vez no ativo que mais reduz o desvio em relação ao alvo."""
+    * só compras (padrão): o alvo de cada ativo é peso x (valor atual + aporte); o que falta é comprado com o aporte
+      (faltas maiores que o aporte encolhem na mesma proporção);
+    * permitir_venda: vende o que passou do alvo para comprar o que ficou abaixo (rebalanceamento completo; o
+      aporte pode ser zero);
+    * congelados {ticker: "nao_comprar" | "manter"}: "nao_comprar" nunca recebe compra (com venda permitida, pode
+      ser vendido até o alvo); "manter" não compra nem vende. O dinheiro que iria para eles vai para os demais.
+    Cripto e renda fixa operam o valor exato; os demais, cotas inteiras (vendas arredondadas, compras para baixo e a
+    sobra cota a cota no ativo que mais reduz o desvio). Com precos_medios, informa o lucro de cada venda."""
     tickers = [rendafixa.normalizar(t) for t in tickers]
     n = len(tickers)
     w = np.array(pesos, float)
@@ -531,53 +558,84 @@ def aportar(tickers: list[str], pesos: list[float], quantidades: list[float] | N
     q0 = np.zeros(n) if not quantidades else np.array(quantidades, float)
     if len(q0) != n or q0.min() < 0:
         raise ValueError("Informe uma quantidade atual (≥ 0) por ativo.")
-    if aporte <= 0:
-        raise ValueError("O aporte precisa ser positivo.")
+    if aporte < 0 or (aporte == 0 and not permitir_venda):
+        raise ValueError("O aporte precisa ser positivo (ou permita vendas para só rebalancear).")
     precos = np.array([float(cotacao(t)["preco"]) for t in tickers])
     frac = np.array([eh_cripto(t) or rendafixa.eh_renda_fixa(t) for t in tickers])
+    cong = {rendafixa.normalizar(k): v for k, v in (congelados or {}).items()}
+    modo = [cong.get(t) for t in tickers]
+    pode_comprar = np.array([m not in ("nao_comprar", "manter") for m in modo])
+    pode_vender = np.array([permitir_venda and m != "manter" for m in modo])
 
     atual = q0 * precos
     total = atual.sum() + aporte
-    alvo = w * total
-    falta = np.maximum(alvo - atual, 0)
-    if falta.sum() > aporte:
-        falta *= aporte / falta.sum()
-    compra = np.where(frac, falta / precos, np.floor(falta / precos))
-    caixa = aporte - float(compra @ precos)
+    # alvo: congelados que ficariam acima do que têm (e não podem comprar) ficam onde estão; o resto redistribui
+    fixo = np.array([m == "manter" for m in modo])
+    for _ in range(n + 1):
+        livre = ~fixo
+        resto = total - atual[fixo].sum()
+        alvo = np.where(fixo, atual, w * resto / w[livre].sum() if w[livre].sum() > 0 else 0)
+        novos = livre & ~pode_comprar & (alvo > atual)
+        if not novos.any():
+            break
+        fixo |= novos
+    if not pode_vender.any():
+        delta = np.where(pode_comprar, np.maximum(alvo - atual, 0), 0)
+        if delta.sum() > aporte:
+            delta *= aporte / delta.sum()
+    else:
+        delta = np.where(alvo > atual, np.where(pode_comprar, alvo - atual, 0), np.where(pode_vender, alvo - atual, 0))
+    # quantidades: fracionários exatos; vendas arredondadas (sem passar do que tem), compras para baixo
+    qtd = np.where(frac, delta / precos, np.where(delta < 0, -np.minimum(np.round(-delta / precos), q0), np.floor(delta / precos)))
+    caixa = aporte - float(qtd @ precos)
     desvio = lambda c: float(np.sum((atual + c * precos - alvo) ** 2))
+    while caixa < -0.01:  # arredondamento das vendas deixou caixa negativo: desfaz a compra que menos piora
+        cand = [i for i in range(n) if qtd[i] > 0 and not frac[i]]
+        if not cand:
+            break
+        i = min(cand, key=lambda i: desvio(qtd - np.eye(n)[i]))
+        qtd[i] -= 1
+        caixa += precos[i]
     while True:  # cota a cota com a sobra
-        atual_d, melhor = desvio(compra), None
-        for i in np.where(~frac & (precos <= caixa + 1e-9))[0]:
-            c = compra.copy()
+        atual_d, melhor = desvio(qtd), None
+        for i in np.where(~frac & pode_comprar & (precos <= caixa + 1e-9))[0]:
+            c = qtd.copy()
             c[i] += 1
             d = desvio(c)
             if d < atual_d - 1e-9 and (melhor is None or d < melhor[0]):
                 melhor = (d, i)
         if melhor is None:
             break
-        compra[melhor[1]] += 1
+        qtd[melhor[1]] += 1
         caixa -= precos[melhor[1]]
     # sobra pequena volta para os fracionários abaixo do alvo
-    if caixa > 0.01 and frac.any():
-        resto = np.where(frac, np.maximum(alvo - atual - compra * precos, 0), 0)
+    if caixa > 0.01 and (frac & pode_comprar).any():
+        resto = np.where(frac & pode_comprar, np.maximum(alvo - atual - qtd * precos, 0), 0)
         if resto.sum() > 0:
             extra = np.minimum(resto, caixa * resto / resto.sum())
-            compra += np.where(frac, extra / precos, 0)
+            qtd += np.where(frac, extra / precos, 0)
             caixa -= float(extra.sum())
-    compra = np.where(frac, np.floor(compra * 1e8) / 1e8, compra)
+    qtd = np.where(frac, np.trunc(qtd * 1e8) / 1e8, qtd)
+    compra = qtd
+    pm = np.array(precos_medios, float) if precos_medios and len(precos_medios) == n else None
+    lucro = np.where(qtd < 0, (precos - pm) * -qtd, 0.0) if pm is not None else None
     depois = atual + compra * precos
     peso = lambda v: v / v.sum() if v.sum() else v * 0
-    afast = lambda v: float(np.abs(peso(v) - w).sum() / 2 * 100)  # % da carteira fora do lugar
+    afast = lambda v: float(np.abs(peso(v) - alvo / alvo.sum()).sum() / 2 * 100)  # % da carteira fora do lugar
     return {
         "ativos": [
             {"ticker": t, "preco": round(float(precos[i]), 6), "fracionario": bool(frac[i]),
              "quantidade_atual": float(q0[i]), "valor_atual": round(float(atual[i]), 2),
-             "peso_atual": round(float(peso(atual)[i]) * 100, 2), "peso_alvo": round(float(w[i]) * 100, 2),
+             "peso_atual": round(float(peso(atual)[i]) * 100, 2), "peso_alvo": round(float(alvo[i] / alvo.sum()) * 100, 2),
              "comprar": float(compra[i]) if frac[i] else int(compra[i]), "valor_compra": round(float(compra[i] * precos[i]), 2),
+             "operacao": "compra" if compra[i] > 1e-9 else "venda" if compra[i] < -1e-9 else None, "congelado": modo[i],
+             "lucro_venda": round(float(lucro[i]), 2) if lucro is not None and compra[i] < 0 else None,
              "peso_depois": round(float(peso(depois)[i]) * 100, 2)}
             for i, t in enumerate(tickers)
         ],
         "aporte": round(aporte, 2), "usado": round(aporte - caixa, 2), "sobra": round(caixa, 2),
+        "compras": round(float(np.maximum(compra, 0) @ precos), 2), "vendas": round(float(np.maximum(-compra, 0) @ precos), 2),
+        "lucro_vendas": round(float(lucro.sum()), 2) if lucro is not None else None,
         "fora_do_alvo_antes": round(afast(atual), 2) if atual.sum() else None,  # carteira vazia: não há "antes"
         "fora_do_alvo_depois": round(afast(depois), 2),
     }

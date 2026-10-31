@@ -34,6 +34,9 @@ function Pesos({ itens, setItens }) {
           <span key={it.ticker} className="sel-chip"><i style={{ background: cor(i) }} />{it.ticker}
             <input type="number" min="0" max="100" step="1" value={it.peso} aria-label={`Peso de ${it.ticker} (%)`}
               style={{ width: 58, marginLeft: 6 }} onChange={(e) => setItens(itens.map((x) => (x.ticker === it.ticker ? { ...x, peso: e.target.value } : x)))} />%
+            <button onClick={() => setItens(itens.map((x) => (x.ticker === it.ticker ? { ...x, congelado: !x.congelado } : x)))}
+              title={it.congelado ? 'Congelado: mantém o peso inicial, não recebe aportes nem rebalanceamento' : 'Congelar (não comprar mais)'}
+              aria-label={`Congelar ${it.ticker}`} style={{ opacity: it.congelado ? 1 : 0.45 }}>❄</button>
             <button onClick={() => setItens(itens.filter((x) => x.ticker !== it.ticker))} aria-label={`Remover ${it.ticker}`}>✕</button>
           </span>
         ))}
@@ -43,6 +46,7 @@ function Pesos({ itens, setItens }) {
         <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
           Soma dos pesos: <b className={Math.abs(total - 100) > 0.5 ? 'neg' : ''}>{fmt.num(total, 1)}%</b>
           {Math.abs(total - 100) > 0.5 && ' (será normalizada para 100%)'}{' '}
+          {itens.some((x) => x.congelado) && '· ❄ congelados mantêm o peso inicial e não recebem aportes. '}
           <button className="btn" style={{ padding: '2px 8px', fontSize: 12 }}
             onClick={() => setItens(itens.map((x) => ({ ...x, peso: +(100 / itens.length).toFixed(2) })))}>Pesos iguais</button>
         </div>
@@ -335,6 +339,7 @@ export default function MonteCarlo({ preset }) {
           tickers: itens.map((x) => x.ticker), pesos: itens.map((x) => Number(x.peso) || 0), valor_inicial: Number(valor),
           aporte_mensal: Number(aporte), anos: Number(anos), simulacoes: Number(sims), metodo, periodo,
           meta: modo === 'meta' ? Number(metaTipo === 'renda' ? metaRenda : meta) : null, meta_tipo: metaTipo, proventos, ir, benchmark: benchmark || null,
+          congelados: itens.filter((x) => x.congelado).map((x) => x.ticker),
           ...(modo === 'aposentadoria' ? { anos_saque: Number(anosSaque), saque_mensal: Number(saque) } : {}),
           inflacao: real ? Number(inflacao) / 100 : 0,
         })
