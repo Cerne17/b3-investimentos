@@ -20,7 +20,8 @@ import httpx
 import numpy as np
 import pandas as pd
 
-PADRAO = re.compile(r"^(CDI(?:-(\d+(?:[.,]\d+)?))?|SELIC|IPCA\+(\d+(?:[.,]\d+)?)|PRE-(\d+(?:[.,]\d+)?))$")
+NUM = r"\d+(?:[.,]\d+)?"
+PADRAO = re.compile(rf"^(?:CDI(?:-(?P<pct>{NUM}))?|CDI\+(?P<spread>{NUM})|SELIC|IPCA\+(?P<ipca>{NUM})|PRE-(?P<pre>{NUM})|CAIXA|POUPANCA)$")
 INICIO = date(2005, 1, 3)
 SERIES = {"cdi": 12, "selic": 11, "ipca": 433}  # % ao dia (CDI, Selic) e % no mês (IPCA)
 TTL = 6 * 3600
@@ -28,9 +29,29 @@ _cache: dict = {}
 _trava = threading.Lock()
 
 
+def _base(ticker: str) -> str:
+    """Tira o rótulo depois de "@" (CDI-110@C6, CAIXA@NUBANK): o rótulo separa posições, o resto define o índice."""
+    return ticker.upper().strip().split("@")[0]
+
+
+def normalizar(ticker: str) -> str:
+    """Ticker em maiúsculas sem .SA, preservando o rótulo depois de "@" como a pessoa escreveu."""
+    t = str(ticker).strip()
+    base, _, rot = t.partition("@")
+    base = base.strip().upper()
+    base = base[:-3] if base.endswith(".SA") else base
+    return f"{base}@{rot.strip()}" if rot.strip() else base
+
+
+def rotulo(ticker: str) -> str | None:
+    partes = ticker.strip().split("@", 1)
+    return partes[1].strip() if len(partes) > 1 and partes[1].strip() else None
+
+
 def eh_renda_fixa(ticker: str) -> bool:
-    """Índices sintéticos (CDI, IPCA+6...) e títulos do Tesouro Direto (TD-IPCA-2035...)."""
-    t = ticker.upper().strip()
+    """Índices sintéticos (CDI, IPCA+6, CAIXA, POUPANCA...) e títulos do Tesouro Direto (TD-IPCA-2035...), com ou
+    sem rótulo (@)."""
+    t = _base(ticker)
     return bool(PADRAO.match(t) or TD.match(t))
 
 
@@ -133,7 +154,7 @@ def _fator_ipca(dias: pd.DatetimeIndex) -> np.ndarray:
 
 def indice(ticker: str) -> pd.Series:
     """Índice acumulado diário (base 1,0 no primeiro dia útil de 2005) do título de renda fixa."""
-    t = ticker.upper().strip()
+    t = _base(ticker)
     chave = ("indice", t)
     hit = _cache.get(chave)
     if hit and time.time() - hit[0] < TTL:
@@ -143,15 +164,24 @@ def indice(ticker: str) -> pd.Series:
         raise LookupError(f"{ticker} não é um título de renda fixa conhecido")
     cdi = _sgs("cdi") / 100
     dias = cdi.index
-    if t == "SELIC":
+    if t == "CAIXA":  # dinheiro parado: vale sempre R$ 1 por unidade
+        fator = np.ones(len(dias))
+    elif t == "SELIC":
         fator = 1 + (_sgs("selic") / 100).reindex(dias).ffill().to_numpy()
+    elif t == "POUPANCA":
+        # regra da poupança nova: 0,5% ao mês se a Selic passa de 8,5% a.a.; senão 70% da Selic (TR ≈ 0)
+        selic = (_sgs("selic") / 100).reindex(dias).ffill().to_numpy()
+        anual = (1 + selic) ** 252 - 1
+        fator = np.where(anual > 0.085, 1.005 ** (12 / 252), (1 + 0.7 * anual) ** (1 / 252))
+    elif m.group("spread"):  # CDI + x% a.a. (debêntures, CRI/CRA pós-fixados)
+        fator = (1 + cdi.to_numpy()) * (1 + _num(m.group("spread")) / 100) ** (1 / 252)
     elif t.startswith("CDI"):
-        pct = (_num(m.group(2)) or 100) / 100
+        pct = (_num(m.group("pct")) or 100) / 100
         fator = 1 + cdi.to_numpy() * pct
-    elif t.startswith("IPCA+"):
-        fator = _fator_ipca(dias) * (1 + _num(m.group(3)) / 100) ** (1 / 252)
+    elif m.group("ipca"):
+        fator = _fator_ipca(dias) * (1 + _num(m.group("ipca")) / 100) ** (1 / 252)
     else:
-        fator = np.full(len(dias), (1 + _num(m.group(4)) / 100) ** (1 / 252))
+        fator = np.full(len(dias), (1 + _num(m.group("pre")) / 100) ** (1 / 252))
     # o fator de um dia rende do fechamento anterior até ele: o primeiro dia é a base
     s = pd.Series(np.concatenate([[1.0], np.cumprod(fator[1:])]), index=dias, name=t)
     _cache[chave] = (time.time(), s)
@@ -163,7 +193,8 @@ PERIODOS = {"1d": 5, "5d": 7, "1mo": 31, "3mo": 92, "6mo": 183, "1y": 366, "2y":
 
 def history(ticker: str, period: str = "2y") -> pd.DataFrame:
     """Mesmo formato do histórico do Yahoo (OHLC = índice, sem volume nem proventos), um ponto por dia útil."""
-    if TD.match(ticker.upper().strip()):
+    ticker = _base(ticker)
+    if TD.match(ticker):
         return _td_history(ticker, period)
     s = indice(ticker)
     if period == "ytd":
@@ -177,29 +208,40 @@ def history(ticker: str, period: str = "2y") -> pd.DataFrame:
 
 def taxa_anual(ticker: str) -> float:
     """Rentabilidade anualizada dos últimos 12 meses (%)."""
-    s = _td_serie(ticker)["pu"] if TD.match(ticker.upper().strip()) else indice(ticker)
+    ticker = _base(ticker)
+    s = _td_serie(ticker)["pu"] if TD.match(ticker) else indice(ticker)
     um_ano = s[s.index >= s.index[-1] - pd.Timedelta(days=365)]
     return round((float(um_ano.iloc[-1] / um_ano.iloc[0]) - 1) * 100, 2)
 
 
 def nome(ticker: str) -> str:
-    t = ticker.upper().strip()
+    r = rotulo(ticker)
+    t = _base(ticker)
     if TD.match(t):
-        return _td_nome(t)
-    m = PADRAO.match(t)
-    if t == "SELIC":
-        return "Tesouro Selic (taxa Selic)"
-    if t.startswith("CDI"):
-        pct = _num(m.group(2)) or 100
-        return f"{pct:g}% do CDI" + (" (Tesouro Selic, CDB liquidez diária)" if pct == 100 else " (CDB/LCI)")
-    if t.startswith("IPCA+"):
-        return f"IPCA + {_num(m.group(3)):g}% a.a. (Tesouro IPCA+ no vencimento)"
-    return f"Prefixado {_num(m.group(4)):g}% a.a. (no vencimento)"
+        base = _td_nome(t)
+    else:
+        m = PADRAO.match(t)
+        if t == "CAIXA":
+            base = "Caixa (saldo parado)"
+        elif t == "POUPANCA":
+            base = "Poupança"
+        elif t == "SELIC":
+            base = "Tesouro Selic (taxa Selic)"
+        elif m.group("spread"):
+            base = f"CDI + {_num(m.group('spread')):g}% a.a."
+        elif t.startswith("CDI"):
+            pct = _num(m.group("pct")) or 100
+            base = f"{pct:g}% do CDI" + (" (Tesouro Selic, CDB liquidez diária)" if pct == 100 and not r else "")
+        elif m.group("ipca"):
+            base = f"IPCA + {_num(m.group('ipca')):g}% a.a." + ("" if r else " (Tesouro IPCA+ no vencimento)")
+        else:
+            base = f"Prefixado {_num(m.group('pre')):g}% a.a." + ("" if r else " (no vencimento)")
+    return f"{r} · {base}" if r else base
 
 
 def cotacao(ticker: str) -> dict:
-    if TD.match(ticker.upper().strip()):
-        return _td_cotacao(ticker)
+    if TD.match(_base(ticker)):
+        return {**_td_cotacao(_base(ticker)), "ticker": ticker.upper(), "nome": nome(ticker)}
     s = indice(ticker)
     preco, ant = float(s.iloc[-1]), float(s.iloc[-2])
     return {
@@ -260,7 +302,7 @@ TD_DESDE = "2012-01-01"
 
 
 def eh_tesouro(ticker: str) -> bool:
-    return bool(TD.match(ticker.upper().strip()))
+    return bool(TD.match(_base(ticker)))
 
 
 def ticker_tesouro(titulo: str, vencimento: str) -> str | None:

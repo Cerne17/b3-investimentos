@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api.js'
 import { fmt, signClass, signed } from '../format.js'
-import { MultiLineChart } from './Charts.jsx'
+import { EvolucaoChart, MultiLineChart } from './Charts.jsx'
 
 const CORES_B = { IBOV: 'var(--series-2)', CDI: 'var(--series-3)', IFIX: 'var(--series-4)', 'S&P 500': 'var(--series-5)' }
 
@@ -73,9 +73,21 @@ export function ImpostoVendas({ d }) {
   )
 }
 
+// fim de cada mês: patrimônio + proventos acumulados, investido líquido, aporte líquido e proventos do mês
+function porMes(d) {
+  const ult = new Map()
+  d.datas.forEach((dt, i) => ult.set(dt.slice(0, 7), i))
+  let invAnt = 0, provAnt = 0
+  return [...ult.entries()].map(([mes, i]) => {
+    const m = { mes, patrimonio: d.valor[i] + d.proventos[i], investido: d.investido[i], aporte: d.investido[i] - invAnt, proventos: d.proventos[i] - provAnt }
+    invAnt = d.investido[i]; provAnt = d.proventos[i]
+    return m
+  })
+}
+
 // Desempenho real a partir das operações: TWR x índices, TIR, lucro e proventos recebidos.
 export default function Desempenho({ transacoes, d, erro }) {
-  const [vista, setVista] = useState('rentabilidade')
+  const [vista, setVista] = useState('evolucao')
   const [bench, setBench] = useState('CDI')
 
   if (!transacoes.length) return null
@@ -88,6 +100,7 @@ export default function Desempenho({ transacoes, d, erro }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Desempenho real{d ? ` · desde ${fmt.date(d.inicio)}` : ''}</h2>
         <div className="seg">
+          <button className={vista === 'evolucao' ? 'on' : ''} onClick={() => setVista('evolucao')}>Evolução</button>
           <button className={vista === 'rentabilidade' ? 'on' : ''} onClick={() => setVista('rentabilidade')}>Rentabilidade x índices</button>
           <button className={vista === 'patrimonio' ? 'on' : ''} onClick={() => setVista('patrimonio')}>Patrimônio x aportes</button>
         </div>
@@ -106,7 +119,9 @@ export default function Desempenho({ transacoes, d, erro }) {
             <Kpi label="Proventos recebidos" value={fmt.brl(t.proventos)} sub={`${d.proventos_recebidos.length} pagamentos na data ex`} />
           </div>
 
-          {vista === 'rentabilidade' ? (
+          {vista === 'evolucao' ? (
+            <EvolucaoChart meses={porMes(d)} />
+          ) : vista === 'rentabilidade' ? (
             <MultiLineChart datas={d.datas} label="Rentabilidade acumulada da carteira e dos índices" fmtY={(v) => signed(v)} height={260}
               series={[{ nome: 'Carteira', valores: d.twr, cor: 'var(--series-1)' },
                 ...benchs.map(([n, b]) => ({ nome: n, valores: b.twr, cor: CORES_B[n] || 'var(--text-muted)', tracejado: true }))]} />

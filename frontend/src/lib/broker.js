@@ -1,4 +1,6 @@
 // Carteiras do Home Broker, guardadas no navegador (localStorage); com login, lib/nuvem.js as sincroniza.
+import { normalizar } from './ativos.js'
+
 const CHAVE = 'homebroker_v1'
 const vazio = () => ({ ativa: null, carteiras: [] })
 const id = () => Math.random().toString(36).slice(2, 10)
@@ -61,7 +63,7 @@ export function posicoesDe(transacoes) {
     .map((p) => ({ ticker: p.ticker, quantidade: +p.quantidade.toPrecision(12), preco_medio: p.quantidade ? p.custo / p.quantidade : 0 }))
 }
 
-export const novaOperacao = (o) => ({ id: id(), tipo: 'compra', ...o, ticker: String(o.ticker).trim().toUpperCase().replace(/\.SA$/, '') })
+export const novaOperacao = (o) => ({ id: id(), tipo: 'compra', ...o, ticker: normalizar(o.ticker) })
 
 // cria uma carteira (ex.: vinda da aba Markowitz, com posições compradas hoje, ou de um extrato da B3, com
 // operações) e a torna ativa
@@ -78,7 +80,7 @@ export function novaCarteira(nome, posicoes = [], transacoes = null, extras = {}
 export function limpar(posicoes) {
   const porTicker = new Map()
   for (const p of posicoes || []) {
-    const ticker = String(p.ticker || '').trim().toUpperCase().replace(/\.SA$/, '')
+    const ticker = normalizar(p.ticker || '')
     const q = Number(p.quantidade), pm = Number(p.preco_medio)
     if (!ticker || !(q > 0)) continue
     const ant = porTicker.get(ticker)

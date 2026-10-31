@@ -11,11 +11,11 @@ import Alertas from './Alertas.jsx'
 import Rebalanceamento from './Rebalanceamento.jsx'
 import { BarChart, MultiLineChart } from './Charts.jsx'
 import { TITULOS } from './live/comum.jsx'
-import { ehCripto, ehRendaFixa } from '../lib/ativos.js'
+import { ehCaixa, ehCripto, ehRendaFixa } from '../lib/ativos.js'
 
 const CORES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 const cor = (i) => CORES[i] || 'var(--text-muted)'
-const CLASSES = { ACAO: 'Ações', FII: 'FIIs', ETF: 'ETFs', CRIPTO: 'Cripto', RF: 'Renda fixa' }
+const CLASSES = { ACAO: 'Ações', FII: 'FIIs', ETF: 'ETFs', CRIPTO: 'Cripto', RF: 'Renda fixa', CAIXA: 'Caixa' }
 const TIPO_ROTA = { ACAO: 'acoes', FII: 'fiis', ETF: 'etfs', CRIPTO: 'criptos' }
 const PERIODOS = [
   { k: '1d', l: 'Hoje', intervalo: '5m', minutos: 5 },
@@ -282,7 +282,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
       ...p, i, preco, valor, custo, nome: q.nome || d.nome_pregao || d.razao_social, erro: q.erro,
       var_pct: q.variacao_pct, var_dia: varDia, resultado: valor != null && custo ? valor - custo : null,
       resultado_pct: valor != null && custo ? (valor / custo - 1) * 100 : null,
-      tipo: d.tipo || (ehCripto(p.ticker) ? 'CRIPTO' : ehRendaFixa(p.ticker) ? 'RF' : null), codigo: d.codigo,
+      tipo: d.tipo || (ehCripto(p.ticker) ? 'CRIPTO' : ehCaixa(p.ticker) ? 'CAIXA' : ehRendaFixa(p.ticker) ? 'RF' : null), codigo: d.codigo,
       dy: prov12 && preco ? (prov12 / preco) * 100 : d.tipo === 'CRIPTO' ? null : d.dividend_yield, prov12,
       renda_mes: prov12 ? (prov12 * p.quantidade) / 12 : null, yoc: prov12 && p.preco_medio ? (prov12 / p.preco_medio) * 100 : null,
     }

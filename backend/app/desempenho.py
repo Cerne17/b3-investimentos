@@ -74,7 +74,7 @@ def preco_em(ticker: str, data: date) -> dict:
     if antes.empty:
         raise LookupError(f"{ticker} não tem preço em {data:%d/%m/%Y} (histórico começa em {close.index[0]:%d/%m/%Y})")
     d = antes.index[-1]
-    return {"ticker": ticker.upper(), "data": d.strftime("%Y-%m-%d"), "preco": round(float(antes.iloc[-1]) * _fator(eventos, d), 6)}
+    return {"ticker": rendafixa.normalizar(ticker), "data": d.strftime("%Y-%m-%d"), "preco": round(float(antes.iloc[-1]) * _fator(eventos, d), 6)}
 
 
 def _tir(fluxos: list[tuple[pd.Timestamp, float]]) -> float | None:
@@ -171,7 +171,7 @@ def desempenho(transacoes: list[dict], benchmarks: list[str] | None = None) -> d
         if q <= 0:
             continue
         evento = (t.get("evento") or None) and str(t["evento"]).lower()
-        tx.append({"data": pd.Timestamp(t["data"]).normalize(), "ticker": str(t["ticker"]).upper().replace(".SA", ""),
+        tx.append({"data": pd.Timestamp(t["data"]).normalize(), "ticker": rendafixa.normalizar(t["ticker"]),
                    "sinal": 1 if tipo == "compra" else -1, "q": q, "p": p, "evento": evento})
     if not tx:
         raise ValueError("Nenhuma operação com quantidade positiva.")

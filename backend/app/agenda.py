@@ -64,7 +64,7 @@ def agenda(posicoes: list[dict]) -> dict:
     porMes = {m: {"mes": m, "total": 0.0, "itens": []} for m in meses}
     ativos, avisos = [], []
     for p in posicoes:
-        t, q = str(p["ticker"]).upper(), float(p.get("quantidade") or 0)
+        t, q = rendafixa.normalizar(p["ticker"]), float(p.get("quantidade") or 0)
         if q <= 0 or eh_cripto(t) or (rendafixa.eh_renda_fixa(t) and not rendafixa.eh_tesouro(t)):
             continue
         try:

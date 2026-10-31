@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { fmt, signClass, signed } from '../format.js'
 import { MultiLineChart } from './Charts.jsx'
 
-const CLASSES = { ACAO: 'Ações', FII: 'FIIs', ETF: 'ETFs', CRIPTO: 'Cripto', RF: 'Renda fixa' }
+const CLASSES = { ACAO: 'Ações', FII: 'FIIs', ETF: 'ETFs', CRIPTO: 'Cripto', RF: 'Renda fixa', CAIXA: 'Caixa' }
 
 // Relatório da carteira para imprimir ou salvar como PDF (impressão do navegador).
 export default function Relatorio({ carteira, linhas, tot, desemp, agenda, onFechar }) {

@@ -19,7 +19,9 @@ CODIGOS = {  # (grupo, código, descrição)
     "ETF": ("07", "09", "Fundos de índice (ETF) — confira o código"),
     "EXTERIOR": ("04", "04", "BDRs e outros ativos negociados em bolsa — confira o código"),
     "CRIPTO": ("08", "02", "Criptoativos (Bitcoin: 08-01)"),
-    "RF": ("04", "02", "Títulos públicos e privados sujeitos à tributação (Tesouro, CDB)"),
+    "RF": ("04", "02", "Títulos públicos e privados sujeitos à tributação (Tesouro, CDB) — LCI/LCA: 04-03"),
+    "CAIXA": ("06", "01", "Depósito em conta corrente / saldo em corretora"),
+    "POUPANCA": ("04", "01", "Depósito em caderneta de poupança"),
 }
 
 
@@ -75,7 +77,7 @@ def relatorio(tx: list[dict], recebidos: list[dict], ir_mensal: dict, eventos: d
         bens = []
         for t in sorted(set(agora) | set(antes)):
             classe = classes[t]
-            g, c, desc = CODIGOS.get(classe, CODIGOS["ACAO"])
+            g, c, desc = CODIGOS["POUPANCA"] if rendafixa._base(t) == "POUPANCA" else CODIGOS.get(classe, CODIGOS["ACAO"])
             q = agora.get(t, {}).get("quantidade", 0.0)
             custo = agora.get(t, {}).get("custo", 0.0)
             nome = rendafixa.nome(t) if rendafixa.eh_renda_fixa(t) else t

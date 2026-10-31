@@ -483,3 +483,67 @@ export function Histogram({ bordas, contagens, refs = [], height = 200, fmtX = (
     </div>
   )
 }
+
+// Evolução mês a mês: patrimônio (+ proventos recebidos) e total investido em linhas; embaixo, barras de aportes
+// líquidos (retiradas para baixo) e de proventos do mês.
+export function EvolucaoChart({ meses, height = 320 }) {
+  const [ref, w] = useWidth()
+  const [hover, setHover] = useState(null)
+  if (meses.length < 2) return <div className="empty">Pouco histórico para o gráfico.</div>
+  const hLinhas = Math.round(height * 0.62), hBarras = height - hLinhas - 18
+  const iw = w - PAD.l - PAD.r
+  const bw = iw / meses.length
+  const x = (i) => PAD.l + bw * i + bw / 2
+  const topo = Math.max(...meses.map((m) => Math.max(m.patrimonio, m.investido))) * 1.05
+  const yL = (v) => PAD.t + (hLinhas - PAD.t - 6) * (1 - v / topo)
+  const maxB = Math.max(1, ...meses.map((m) => Math.max(Math.abs(m.aporte), m.proventos)))
+  const meio = hLinhas + 18 + hBarras / 2
+  const yB = (v) => meio - (v / maxB) * (hBarras / 2 - 4)
+  const linha = (k) => meses.map((m, i) => `${i ? 'L' : 'M'}${x(i)},${yL(m[k])}`).join(' ')
+  const area = `${linha('patrimonio')} L${x(meses.length - 1)},${yL(0)} L${x(0)},${yL(0)} Z`
+  const barW = Math.max(2, Math.min(18, bw / 2 - 2))
+  const h = hover != null ? meses[hover] : null
+  return (
+    <div className="chart" ref={ref}>
+      <div className="legend">
+        <span><i style={{ background: 'var(--series-1)' }} />Patrimônio + proventos</span>
+        <span><i style={{ background: 'var(--text-muted)', height: 2, width: 14, borderRadius: 2, verticalAlign: 3 }} />Total investido</span>
+        <span><i style={{ background: 'var(--series-2)' }} />Aportes (retiradas para baixo)</span>
+        <span><i style={{ background: 'var(--series-3)' }} />Proventos do mês</span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${height}`} onMouseLeave={() => setHover(null)} role="img" aria-label="Evolução da carteira, aportes e proventos">
+        {ticks(0, topo, 3).map((t) => (
+          <g key={t}><line className="gridline" x1={PAD.l} x2={w - PAD.r} y1={yL(t)} y2={yL(t)} />
+            <text x={PAD.l - 6} y={yL(t) + 4} textAnchor="end">{fmt.big(t)}</text></g>
+        ))}
+        <path d={area} fill="var(--series-1)" opacity="0.12" />
+        <path d={linha('patrimonio')} fill="none" stroke="var(--series-1)" strokeWidth="2" strokeLinejoin="round" />
+        <path d={linha('investido')} fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeDasharray="5 4" />
+        <line className="gridline" x1={PAD.l} x2={w - PAD.r} y1={meio} y2={meio} />
+        <text x={PAD.l - 6} y={yB(maxB) + 4} textAnchor="end">{fmt.big(maxB)}</text>
+        {meses.map((m, i) => (
+          <g key={m.mes} onMouseEnter={() => setHover(i)}>
+            <rect x={PAD.l + bw * i} y={0} width={bw} height={height} fill="transparent" />
+            {m.aporte !== 0 && <rect x={x(i) - barW - 1} width={barW} y={Math.min(yB(m.aporte), meio)} height={Math.abs(yB(m.aporte) - meio)}
+              fill={m.aporte > 0 ? 'var(--series-2)' : 'var(--critical, #d9534f)'} opacity={hover == null || hover === i ? 1 : 0.5} rx="2" />}
+            {m.proventos > 0 && <rect x={x(i) + 1} width={barW} y={yB(m.proventos)} height={meio - yB(m.proventos)}
+              fill="var(--series-3)" opacity={hover == null || hover === i ? 1 : 0.5} rx="2" />}
+          </g>
+        ))}
+        {[0, meses.length - 1].map((i) => (
+          <text key={i} x={x(i)} y={height - 2} textAnchor={i ? 'end' : 'start'}>{meses[i].mes.slice(5)}/{meses[i].mes.slice(2, 4)}</text>
+        ))}
+        {h && <line x1={x(hover)} x2={x(hover)} y1={PAD.t} y2={height - 14} stroke="var(--text-muted)" strokeDasharray="2 3" />}
+      </svg>
+      {h && (
+        <div className="tooltip" style={{ left: `${(x(hover) / w) * 100}%`, top: 8 }}>
+          <b>{h.mes.slice(5)}/{h.mes.slice(0, 4)}</b>
+          <span>Patrimônio + proventos <b className="num">{fmt.brl(h.patrimonio)}</b></span>
+          <span>Investido <b className="num">{fmt.brl(h.investido)}</b></span>
+          <span>{h.aporte >= 0 ? 'Aporte' : 'Retirada'} <b className="num">{fmt.brl(Math.abs(h.aporte))}</b></span>
+          <span>Proventos <b className="num">{fmt.brl(h.proventos)}</b></span>
+        </div>
+      )}
+    </div>
+  )
+}

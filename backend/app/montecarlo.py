@@ -16,7 +16,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from . import impostos
+from . import impostos, rendafixa
 from .portfolio import exigir_historico, proventos_alinhados, retornos_alinhados
 from .yahoo import TAXA_LIVRE_RISCO, ajustar_splits, cotacao, eh_cripto, history
 
@@ -139,7 +139,7 @@ def simular_carteira(
     if meta_tipo not in ("patrimonio", "renda"):
         raise ValueError("meta_tipo deve ser 'patrimonio' ou 'renda'.")
     sacar = proventos == "sacar"
-    tickers = list(dict.fromkeys(t.strip().upper().replace(".SA", "") for t in tickers if t.strip()))
+    tickers = list(dict.fromkeys(rendafixa.normalizar(t) for t in tickers if t.strip()))
     if not tickers:
         raise ValueError("Informe pelo menos um ativo.")
     if metodo not in METODOS:

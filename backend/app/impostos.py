@@ -14,13 +14,15 @@ import re
 from . import rendafixa
 from .yahoo import eh_cripto
 
-GANHO = {"ACAO": 0.15, "ETF": 0.15, "FII": 0.20, "CRIPTO": 0.15, "RF": 0.15, "EXTERIOR": 0.15}
-PROVENTOS = {"ACAO": 0.0, "ETF": 0.15, "FII": 0.0, "CRIPTO": 0.0, "RF": 0.0, "EXTERIOR": 0.30}
-NOMES = {"ACAO": "Ações", "ETF": "ETFs", "FII": "FIIs", "CRIPTO": "Cripto", "RF": "Renda fixa", "EXTERIOR": "Exterior"}
+GANHO = {"ACAO": 0.15, "ETF": 0.15, "FII": 0.20, "CRIPTO": 0.15, "RF": 0.15, "EXTERIOR": 0.15, "CAIXA": 0.0}
+PROVENTOS = {"ACAO": 0.0, "ETF": 0.15, "FII": 0.0, "CRIPTO": 0.0, "RF": 0.0, "EXTERIOR": 0.30, "CAIXA": 0.0}
+NOMES = {"ACAO": "Ações", "ETF": "ETFs", "FII": "FIIs", "CRIPTO": "Cripto", "RF": "Renda fixa", "EXTERIOR": "Exterior", "CAIXA": "Caixa"}
 
 
 def classe(ticker: str) -> str:
     t = ticker.upper().strip().replace(".SA", "")
+    if rendafixa._base(t) == "CAIXA":
+        return "CAIXA"
     if rendafixa.eh_renda_fixa(t):
         return "RF"
     if eh_cripto(t):

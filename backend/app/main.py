@@ -472,9 +472,9 @@ def cotacoes(tickers: str = Query(..., examples=["HGLG11,BOVA11,IVVB11"])):
     out = {}
     for t in [t.strip() for t in tickers.split(",") if t.strip()][:30]:
         try:
-            out[t.upper()] = yahoo.cotacao(t)
+            out[t] = yahoo.cotacao(t)  # mesma grafia do pedido (rótulos de renda fixa mantêm maiúsculas/minúsculas)
         except Exception as e:
-            out[t.upper()] = {"erro": str(e)}
+            out[t] = {"erro": str(e)}
     return out
 
 

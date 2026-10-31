@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { fmt } from '../format.js'
-import { ehRendaFixa } from '../lib/ativos.js'
+import { ehCaixa, ehRendaFixa } from '../lib/ativos.js'
 import { mesclarOperacoes, novaOperacao } from '../lib/broker.js'
 import BuscaAtivo from './BuscaAtivo.jsx'
 
@@ -34,34 +34,59 @@ function LinhaEditavel({ t, onSalvar, onCancelar }) {
   )
 }
 
+// Tipos de investimento do formulário: os de bolsa/cripto/Tesouro escolhem o ativo na busca; os demais montam o
+// ticker sintético a partir da taxa (CDI-110, CDI+2, IPCA+6, PRE-13, POUPANCA, CAIXA) com o nome como rótulo (@).
+const TIPOS = {
+  bolsa: { nome: 'Ações, FIIs, ETFs, BDRs', busca: true },
+  cripto: { nome: 'Cripto', busca: true },
+  tesouro: { nome: 'Tesouro Direto', busca: true, dica: 'tesouro ipca 2035' },
+  pos: { nome: 'CDB, LCI, LCA, RDB (% do CDI)', taxa: '% do CDI', ticker: (x) => (Number(x) === 100 ? 'CDI' : `CDI-${x}`), exemplo: 'CDB Banco X' },
+  cdimais: { nome: 'Debênture, CRI, CRA (CDI + taxa)', taxa: 'CDI + % a.a.', ticker: (x) => `CDI+${x}`, exemplo: 'Debênture ABC' },
+  ipca: { nome: 'IPCA + taxa (CDB, debênture...)', taxa: 'IPCA + % a.a.', ticker: (x) => `IPCA+${x}`, exemplo: 'CDB IPCA Banco X' },
+  pre: { nome: 'Prefixado', taxa: '% a.a.', ticker: (x) => `PRE-${x}`, exemplo: 'LCI pré Banco X' },
+  poupanca: { nome: 'Poupança', ticker: () => 'POUPANCA', exemplo: 'Poupança Banco X' },
+  caixa: { nome: 'Caixa (saldo parado)', ticker: () => 'CAIXA', exemplo: 'Saldo na corretora' },
+}
+
 // Formulário de compra/venda com data e a lista de operações da carteira; importa o extrato da B3 numa carteira nova.
 export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
-  const [novo, setNovo] = useState({ tipo: 'compra', data: hoje(), ticker: '', quantidade: '', preco: '', valor: '' })
+  const [novo, setNovo] = useState({ tipo: 'compra', data: hoje(), ticker: '', quantidade: '', preco: '', valor: '', categoria: 'bolsa', taxa: '', nome: '', usarCaixa: false })
+  const cat = TIPOS[novo.categoria]
+  // ticker efetivo: o escolhido na busca ou o montado pela taxa + rótulo
+  const tickerFinal = cat.busca ? novo.ticker
+    : cat.taxa ? (Number(novo.taxa) > 0 ? `${cat.ticker(String(+novo.taxa))}${novo.nome.trim() ? `@${novo.nome.trim()}` : ''}` : '')
+      : `${cat.ticker()}${novo.nome.trim() ? `@${novo.nome.trim()}` : ''}`
+  const caixaPadrao = transacoes.find((t) => ehCaixa(t.ticker))?.ticker || 'CAIXA' 
   const [sugerido, setSugerido] = useState(null) // preço de fechamento na data, para preencher
   const [aberto, setAberto] = useState(() => transacoes.some((t) => t.inicial))
   const [importando, setImportando] = useState(null)
   const [editando, setEditando] = useState(null) // id da operação em edição
   const arquivo = useRef(null)
-  const rf = ehRendaFixa(novo.ticker)
+  const rf = ehRendaFixa(tickerFinal)
 
   // preço de fechamento na data (como negociado): preenche o campo e, na renda fixa, converte valor em cotas
   useEffect(() => {
     setSugerido(null)
-    if (!novo.ticker || !novo.data) return
+    if (!tickerFinal || !novo.data) return
     let vivo = true
-    api.precoEm(novo.ticker, novo.data).then((r) => vivo && setSugerido(r)).catch(() => vivo && setSugerido({ erro: true }))
-    return () => { vivo = false }
-  }, [novo.ticker, novo.data])
+    const t = setTimeout(() => api.precoEm(tickerFinal, novo.data).then((r) => vivo && setSugerido(r)).catch(() => vivo && setSugerido({ erro: true })), 300)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [tickerFinal, novo.data])
 
   const preco = rf ? sugerido?.preco : Number(novo.preco) || sugerido?.preco
   const quantidade = rf ? (sugerido?.preco ? Number(novo.valor) / sugerido.preco : 0) : Number(novo.quantidade)
-  const valido = novo.ticker && novo.data && quantidade > 0 && preco > 0
+  const valido = tickerFinal && novo.data && quantidade > 0 && preco > 0
 
   const registrar = (e) => {
     e.preventDefault()
     if (!valido) return
-    setTransacoes((ts) => [...ts, novaOperacao({ tipo: novo.tipo, data: novo.data, ticker: novo.ticker, quantidade, preco })])
-    setNovo((n) => ({ ...n, ticker: '', quantidade: '', preco: '', valor: '' }))
+    const op = novaOperacao({ tipo: novo.tipo, data: novo.data, ticker: tickerFinal, quantidade, preco })
+    // contrapartida no caixa: compra sai do caixa, venda entra nele (R$ 1 por unidade)
+    const caixa = novo.usarCaixa && !ehCaixa(tickerFinal)
+      ? [novaOperacao({ tipo: novo.tipo === 'compra' ? 'venda' : 'compra', data: novo.data, ticker: caixaPadrao, quantidade: +(quantidade * preco).toFixed(2), preco: 1 })]
+      : []
+    setTransacoes((ts) => [...ts, op, ...caixa])
+    setNovo((n) => ({ ...n, ticker: '', quantidade: '', preco: '', valor: '', taxa: '', nome: '' }))
     setAberto(true)
   }
 
@@ -133,16 +158,35 @@ export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
       )}
 
       <form className="filters" onSubmit={registrar} style={{ margin: '12px 0 4px' }}>
+        <label className="field">Tipo de investimento
+          <select value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value, ticker: '', taxa: '', preco: '' })}>
+            {Object.entries(TIPOS).map(([k, t]) => <option key={k} value={k}>{t.nome}</option>)}
+          </select>
+        </label>
         <label className="field">Operação
           <select value={novo.tipo} onChange={(e) => setNovo({ ...novo, tipo: e.target.value })}>
-            <option value="compra">Compra</option><option value="venda">Venda</option>
+            {cat.busca && novo.categoria !== 'tesouro'
+              ? <><option value="compra">Compra</option><option value="venda">Venda</option></>
+              : novo.categoria === 'caixa'
+                ? <><option value="compra">Depósito</option><option value="venda">Retirada</option></>
+                : <><option value="compra">Aplicação</option><option value="venda">Resgate</option></>}
           </select>
         </label>
         <label className="field">Data<input type="date" value={novo.data} max={hoje()} onChange={(e) => setNovo({ ...novo, data: e.target.value })} /></label>
-        <BuscaAtivo onAdd={(t) => setNovo({ ...novo, ticker: t, preco: '' })} label="Ativo" width={200} />
-        {novo.ticker && <div className="field">Selecionado<span className="sel-chip" style={{ marginTop: 4 }}>{novo.ticker}</span></div>}
+        {cat.busca ? (
+          <>
+            <BuscaAtivo onAdd={(t) => setNovo({ ...novo, ticker: t, preco: '' })} label={novo.categoria === 'tesouro' ? 'Título (busque "tesouro ipca")' : 'Ativo'} width={200} />
+            {novo.ticker && <div className="field">Selecionado<span className="sel-chip" style={{ marginTop: 4 }}>{novo.ticker}</span></div>}
+          </>
+        ) : (
+          <>
+            <label className="field">Nome (opcional)<input value={novo.nome} placeholder={cat.exemplo} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} style={{ width: 170 }} /></label>
+            {cat.taxa && <label className="field">{cat.taxa}<input type="number" step="any" min="0" value={novo.taxa} onChange={(e) => setNovo({ ...novo, taxa: e.target.value })} style={{ width: 90 }} /></label>}
+          </>
+        )}
         {rf ? (
-          <label className="field">Valor aplicado (R$)<input type="number" step="any" min="0" value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })} /></label>
+          <label className="field">{novo.categoria === 'caixa' ? 'Valor (R$)' : novo.tipo === 'venda' ? 'Valor resgatado (R$)' : 'Valor aplicado (R$)'}
+            <input type="number" step="any" min="0" value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })} /></label>
         ) : (
           <>
             <label className="field">Quantidade<input type="number" step="any" min="0" value={novo.quantidade} onChange={(e) => setNovo({ ...novo, quantidade: e.target.value })} /></label>
@@ -150,12 +194,18 @@ export default function Operacoes({ transacoes, setTransacoes, onImportarB3 }) {
               placeholder={sugerido?.preco ? fmt.num(sugerido.preco, 2) : ''} onChange={(e) => setNovo({ ...novo, preco: e.target.value })} /></label>
           </>
         )}
+        {novo.categoria !== 'caixa' && (
+          <label className="field" title="Registra a contrapartida no caixa: compra/aplicação sai do saldo, venda/resgate entra nele">
+            <span><input type="checkbox" checked={novo.usarCaixa} onChange={(e) => setNovo({ ...novo, usarCaixa: e.target.checked })} /> {novo.tipo === 'compra' ? 'Usar saldo do caixa' : 'Mandar para o caixa'}</span>
+          </label>
+        )}
         <button className="btn primary" disabled={!valido}>Registrar</button>
       </form>
-      {novo.ticker && (
+      {tickerFinal && (
         <div className="muted" style={{ fontSize: 12 }}>
+          {!cat.busca && <>Registra como <b>{tickerFinal}</b>. </>}
           {sugerido?.erro ? 'Sem preço nessa data.' : sugerido?.preco
-            ? rf ? `Índice em ${fmt.date(sugerido.data)}: ${fmt.num(sugerido.preco, 4)} → ${quantidade ? qtdFmt(quantidade) : '—'} cotas.`
+            ? rf ? (ehCaixa(tickerFinal) ? '' : `Índice em ${fmt.date(sugerido.data)}: ${fmt.num(sugerido.preco, 4)} → ${quantidade ? qtdFmt(quantidade) : '—'} cotas.`)
               : `Fechamento em ${fmt.date(sugerido.data)}: ${fmt.preco(sugerido.preco)} (usado se o preço ficar em branco).`
             : 'Buscando preço na data…'}
         </div>

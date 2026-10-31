@@ -372,7 +372,7 @@ def otimizar(
     mesmas métricas) e, em cada carteira otimizada, `distancia_atual` (% da carteira que precisaria mudar de lugar)."""
     if estimativa not in ESTIMATIVAS:
         raise ValueError(f"estimativa desconhecida: {estimativa} (use {', '.join(ESTIMATIVAS)})")
-    tickers = list(dict.fromkeys(t.strip().upper().replace(".SA", "") for t in tickers if t.strip()))
+    tickers = list(dict.fromkeys(rendafixa.normalizar(t) for t in tickers if t.strip()))
     n = len(tickers)
     if n < 2:
         raise ValueError("Selecione pelo menos 2 ativos.")
@@ -522,7 +522,7 @@ def aportar(tickers: list[str], pesos: list[float], quantidades: list[float] | N
     2. se as faltas somam mais que o aporte, todas encolhem na mesma proporção;
     3. cripto e renda fixa compram o valor exato; os demais, cotas inteiras arredondadas para baixo e, com a sobra,
        uma cota por vez no ativo que mais reduz o desvio em relação ao alvo."""
-    tickers = [t.strip().upper().replace(".SA", "") for t in tickers]
+    tickers = [rendafixa.normalizar(t) for t in tickers]
     n = len(tickers)
     w = np.array(pesos, float)
     if len(w) != n or w.min() < 0 or w.sum() <= 0:
