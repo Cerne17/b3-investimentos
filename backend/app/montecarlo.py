@@ -187,9 +187,9 @@ def simular_carteira(
     limites = np.round(np.arange(meses + 1) * dpm).astype(int)
 
     def por_mes(diario: np.ndarray) -> np.ndarray:
-        """Soma de log(1 + retorno) de cada mês → fator de crescimento mensal (n, meses)."""
-        acum = np.concatenate([np.zeros((n, 1)), np.cumsum(np.log1p(diario), axis=1, dtype=np.float64)], axis=1)
-        return np.exp(acum[:, limites[1:]] - acum[:, limites[:-1]])
+        """Soma de log(1 + retorno) de cada mês → fator de crescimento mensal (n, meses). Soma por trechos
+        (reduceat) em vez de montar a matriz acumulada (n, dias) em float64: corta o pico de memória."""
+        return np.exp(np.add.reduceat(np.log1p(diario[:, :limites[-1]]), limites[:-1], axis=1, dtype=np.float64))
 
     rb = None
     if benchmark:
@@ -229,9 +229,8 @@ def simular_carteira(
     G_cong = por_mes(sim_c) if sim_c is not None else None
     del sim_c
     # rendimento em proventos de cada mês, sobre o patrimônio do início do mês
-    acum_d = np.concatenate([np.zeros((sim_d.shape[0], 1)), np.cumsum(sim_d, axis=1, dtype=np.float64)], axis=1)
-    Y = np.broadcast_to(acum_d[:, limites[1:]] - acum_d[:, limites[:-1]], (n, meses))
-    del sim, sim_d, acum_d
+    Y = np.broadcast_to(np.add.reduceat(sim_d[:, :limites[-1]], limites[:-1], axis=1, dtype=np.float64), (n, meses))
+    del sim, sim_d
 
     # Tudo em reais de hoje: com inflação > 0 o crescimento é descontado mês a mês e o aporte é corrigido
     # pela inflação (aporte real constante). Com inflação 0, os valores são nominais.

@@ -436,24 +436,36 @@ class PedidoMCAtivo(BaseModel):
     semente: int | None = 42
 
 
+# Na Vercel (Fluid compute) a mesma instância atende pedidos simultâneos; duas simulações grandes ao mesmo tempo
+# podiam estourar a memória e derrubar a função (500 sem log). Uma por vez por instância; as outras esperam.
+_simulacao = threading.Semaphore(1)
+
+
+def _simular(fn, args: dict):
+    if not _simulacao.acquire(timeout=50):
+        raise HTTPException(503, "Servidor ocupado com outra simulação. Tente de novo em alguns segundos.")
+    try:
+        return fn(**args)
+    except (ValueError, LookupError) as e:
+        raise HTTPException(400, str(e))
+    except MemoryError:
+        raise HTTPException(503, "Simulação grande demais para a memória do servidor: reduza o número de simulações ou o horizonte.")
+    finally:
+        _simulacao.release()
+
+
 @app.post("/api/montecarlo/carteira", tags=["Monte Carlo"], summary="Simula o patrimônio de uma carteira")
 def mc_carteira(p: PedidoMCCarteira):
     """Faixas de percentis do patrimônio mês a mês, distribuição final, probabilidade de perda e de bater a renda
     fixa, CAGR e drawdown por cenário. Com `meta`: probabilidade de atingi-la (no fim e ano a ano), mês mediano
     em que chega lá e o aporte mensal necessário para 50/75/90% de chance."""
-    try:
-        return montecarlo.simular_carteira(**p.model_dump())
-    except (ValueError, LookupError) as e:
-        raise HTTPException(400, str(e))
+    return _simular(montecarlo.simular_carteira, p.model_dump())
 
 
 @app.post("/api/montecarlo/ativo", tags=["Monte Carlo"], summary="Cone de preço de um ativo")
 def mc_ativo(p: PedidoMCAtivo):
     """Percentis do preço ao longo do horizonte, chance de alta, de tocar os alvos de alta/queda, VaR/CVaR 95%."""
-    try:
-        return montecarlo.simular_ativo(**p.model_dump())
-    except (ValueError, LookupError) as e:
-        raise HTTPException(400, str(e))
+    return _simular(montecarlo.simular_ativo, p.model_dump())
 
 
 # ---------------- Tempo real ----------------
