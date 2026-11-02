@@ -17,6 +17,7 @@ backend/app/
   impostos.py    IR aproximado por classe de ativo
   desempenho.py  desempenho real a partir das operações (TWR, TIR, proventos, índices)
   importar_b3.py extratos da Área do Investidor da B3 → operações
+  importacao.py  valida uma carteira e gera link e JSON para importar no site (usado pelo MCP)
   ingest.py      carga dos CSVs + coleta → SQLite
   repository.py  consultas (usadas pela API e pelo MCP)
   main.py        API REST (Swagger em /docs) — também serve o dashboard
@@ -41,8 +42,11 @@ FIIs com dado suspeito (DY do Yahoo muito diferente da CVM, P/VP fora do usual, 
 
 ## Rodando
 
-O repositório já traz `data/b3.db` populado (coleta de 26/10/2026), então a API sobe com dados na hora.
-Rode o `ingest` para atualizar.
+A base não fica no git: baixe a versão publicada pela coleta automática, ou rode o `ingest` para gerar a sua.
+
+```bash
+curl -fL -o data/b3.db https://github.com/Cerne17/b3-investimentos/releases/download/dados/b3.db
+```
 
 ```bash
 cd backend
@@ -278,7 +282,10 @@ para rodar à mão em Actions → Coleta de dados → Run workflow.
 Ferramentas: `buscar_acoes`, `buscar_fiis`, `buscar_etfs`, `buscar_criptos`, `simular_carteira_monte_carlo`,
 `simular_preco_monte_carlo`, `detalhes_ativo`, `comparar_ativos`, `ranking`, `resumo_mercado`,
 `dicionario_metricas`, `valores_coluna`, `consultar_sql`, `cotacao_tempo_real`, `historico_precos`, `buscar_ativos`,
-`otimizar_carteira`, `atualizar_ativo`.
+`otimizar_carteira`, `onde_aportar`, `desempenho_carteira`, `titulos_tesouro`, `gerar_importacao`, `atualizar_ativo`.
+
+`gerar_importacao` valida uma carteira (tickers, datas, quantidades, preços) e devolve um link que abre o Home Broker do
+site pronto para importar, mais o JSON equivalente. O MCP não lê as carteiras salvas no site.
 
 Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 

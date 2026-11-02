@@ -8,7 +8,7 @@ from typing import Literal
 
 from mcp.server.mcpserver import MCPServer
 
-from . import desempenho, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
+from . import desempenho, importacao, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
 from .db import SCHEMA, init_db
 
 mcp = MCPServer(
@@ -17,7 +17,18 @@ mcp = MCPServer(
         "Dados de ações, ETFs e FIIs (fundos imobiliários) listados na B3 e das maiores criptomoedas (em reais, ticker BTC-BRL). "
         "Use `dicionario_metricas` para ver as colunas. "
         "Filtros numéricos: {'coluna': [min, max]} (use null para sem limite). Percentuais estão em % (10 = 10%). "
-        "Para cotações ao vivo use `cotacao_tempo_real`. Para perguntas agregadas use `consultar_sql`."
+        "Para cotações ao vivo use `cotacao_tempo_real`. Para perguntas agregadas use `consultar_sql`.\n\n"
+        "Este conector é o servidor do app https://b3.cerne.pro (dashboard de ativos, Markowitz, Monte Carlo e Home Broker). "
+        "Não peça a pasta do projeto, prints ou exemplos de arquivo para explicar o app: use o que está aqui.\n"
+        "Importar carteira no site: chame `gerar_importacao`, que valida os dados e devolve um link (abrir e clicar em "
+        "\"Importar neste navegador\") e o JSON equivalente (salvar como .json e usar Home Broker > Importar). "
+        "Com datas e preços, passe `transacoes`; só com a posição atual, passe `posicoes`. Corrija os `erros` devolvidos antes "
+        "de entregar. Quem tem extrato da B3 pode enviar o Excel/CSV (Negociação, Movimentação ou Posição) direto no mesmo botão Importar.\n"
+        "Tickers: ações, ETFs e FIIs pelo código da B3 (PETR4, BOVA11, MXRF11); cripto BTC-BRL; renda fixa CDI, CDI-110 (110% do CDI), "
+        "CDI+2, SELIC, IPCA+6, PRE-13, POUPANCA, CAIXA; Tesouro Direto TD-IPCA-2035 (veja `titulos_tesouro`). "
+        "Um rótulo depois de @ separa posições iguais: CDI-110@C6.\n"
+        "Este conector não lê as carteiras salvas no site: peça os dados à pessoa, ou um JSON exportado com o botão Exportar do Home Broker. "
+        "Uso educacional: não é recomendação de investimento."
     ),
     version="1.0.0",
 )
@@ -296,6 +307,18 @@ def titulos_tesouro(filtro: str = "") -> list[dict]:
         except Exception:
             pass
     return out
+
+
+@mcp.tool()
+def gerar_importacao(nome: str = "Carteira importada", transacoes: list[dict] | None = None, posicoes: list[dict] | None = None) -> dict:
+    """Prepara uma carteira para importar no Home Broker de b3.cerne.pro: valida os dados e devolve link e JSON prontos.
+    Use um dos dois (a carteira nova não altera as existentes):
+    transacoes: [{"data": "2024-03-15", "ticker": "MXRF11", "tipo": "compra"|"venda", "quantidade": 100, "preco": 10.25}], com
+      "evento" opcional para bonificacao, desdobro ou grupamento (preço 0). Com histórico, desempenho e proventos ficam corretos.
+    posicoes: [{"ticker": "MXRF11", "quantidade": 300, "preco_medio": 10.25}], só a posição atual (entra como compra de hoje).
+    Retorno: ok=false com `erros` (ticker inexistente com sugestões, data, quantidade ou preço inválidos) para corrigir; ok=true com
+    `link`, `arquivo_json`, `como_importar` e `avisos` (ex.: venda maior que a posição) para mostrar à pessoa."""
+    return importacao.gerar(nome, transacoes, posicoes)
 
 
 @mcp.tool()
