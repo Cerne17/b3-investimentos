@@ -11,6 +11,7 @@ Dias úteis = datas publicadas da série do CDI. O IPCA é mensal: distribuído 
 IPCA publicado usam a média mensal dos últimos 12 meses.
 """
 import io
+import logging
 import re
 import threading
 import time
@@ -28,8 +29,10 @@ ULTIMOS_MAX = 20  # máximo do endpoint "últimos N" do SGS: acima disso respond
 # idade máxima do snapshot (dias corridos) para esses 20 valores cobrirem a lacuna: 20 pregões nas diárias, 20 meses no IPCA
 LACUNA_MAX = {"cdi": 25, "selic": 25, "ipca": 365}
 TTL = 6 * 3600
+TTL_FALHA = 600  # sem resposta do Banco Central: tenta de novo logo, sem ficar 6 horas só com o snapshot
 _cache: dict = {}
 _trava = threading.Lock()
+log = logging.getLogger(__name__)
 
 
 def _base(ticker: str) -> str:
@@ -103,6 +106,7 @@ def _sgs(nome: str) -> pd.Series:
         if hit and time.time() - hit[0] < TTL:
             return hit[1]
         base = _do_banco(nome)
+        falhou = False
         cab = {"User-Agent": "Mozilla/5.0 (b3-investimentos)", "Accept": "application/json"}
         try:
             if len(base) and (date.today() - base.index[-1].date()).days < LACUNA_MAX[nome]:
@@ -115,14 +119,15 @@ def _sgs(nome: str) -> pd.Series:
                 ini = (base.index[-1].date() + timedelta(days=1)) if len(base) else INICIO
                 with httpx.Client(timeout=30, headers=cab) as cli:
                     novos = _baixar(cli, nome, ini, date.today())
-        except (httpx.HTTPError, ValueError):  # fora do ar, lento ou página de erro em vez de JSON
+        except (httpx.HTTPError, ValueError) as e:  # fora do ar, lento ou página de erro em vez de JSON
+            log.warning("Banco Central sem resposta para %s: %r", nome, e)
             if not len(base):
                 raise LookupError("Banco Central fora do ar e sem snapshot da série na base")
-            novos = []
+            novos, falhou = [], True
         extra = pd.Series({pd.Timestamp(pd.to_datetime(p["data"], dayfirst=True)): float(p["valor"]) for p in novos}, dtype=float)
         s = pd.concat([base, extra]).sort_index()
         s = s[~s.index.duplicated(keep="last")]
-        _cache[nome] = (time.time(), s)
+        _cache[nome] = (time.time() - (TTL - TTL_FALHA if falhou else 0), s)
         return s
 
 

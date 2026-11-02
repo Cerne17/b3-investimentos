@@ -120,6 +120,22 @@ def test_sgs_completa_snapshot_dentro_do_limite_do_endpoint(monkeypatch, nome, d
         assert not urls and baixou == [nome]  # lacuna maior que os 20 valores: baixa por intervalo
 
 
+def test_sgs_falha_usa_snapshot_e_tenta_de_novo_logo(monkeypatch):
+    class Cliente:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def get(self, url): raise httpx.ConnectTimeout("lento")
+
+    ultima = pd.Timestamp.today().normalize() - pd.Timedelta(days=5)
+    monkeypatch.setattr(rendafixa, "_cache", {})
+    monkeypatch.setattr(rendafixa, "_do_banco", lambda n: pd.Series({ultima: 0.1}, dtype=float))
+    monkeypatch.setattr(rendafixa.httpx, "Client", Cliente)
+    assert len(rendafixa._sgs("cdi")) == 1
+    idade = rendafixa.time.time() - rendafixa._cache["cdi"][0]
+    assert rendafixa.TTL - rendafixa.TTL_FALHA - 5 < idade < rendafixa.TTL
+
+
 def test_aportar_com_vendas_e_congelados(monkeypatch):
     precos = {"A": 10.0, "B": 100.0, "C": 50.0}
     monkeypatch.setattr(portfolio, "cotacao", lambda t: {"preco": precos[t]})
