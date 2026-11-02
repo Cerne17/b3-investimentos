@@ -24,6 +24,9 @@ NUM = r"\d+(?:[.,]\d+)?"
 PADRAO = re.compile(rf"^(?:CDI(?:-(?P<pct>{NUM}))?|CDI\+(?P<spread>{NUM})|SELIC|IPCA\+(?P<ipca>{NUM})|PRE-(?P<pre>{NUM})|CAIXA|POUPANCA)$")
 INICIO = date(2005, 1, 3)
 SERIES = {"cdi": 12, "selic": 11, "ipca": 433}  # % ao dia (CDI, Selic) e % no mês (IPCA)
+ULTIMOS_MAX = 20  # máximo do endpoint "últimos N" do SGS: acima disso responde 400
+# idade máxima do snapshot (dias corridos) para esses 20 valores cobrirem a lacuna: 20 pregões nas diárias, 20 meses no IPCA
+LACUNA_MAX = {"cdi": 25, "selic": 25, "ipca": 365}
 TTL = 6 * 3600
 _cache: dict = {}
 _trava = threading.Lock()
@@ -102,10 +105,10 @@ def _sgs(nome: str) -> pd.Series:
         base = _do_banco(nome)
         cab = {"User-Agent": "Mozilla/5.0 (b3-investimentos)", "Accept": "application/json"}
         try:
-            if len(base) and (date.today() - base.index[-1].date()).days < 60:
+            if len(base) and (date.today() - base.index[-1].date()).days < LACUNA_MAX[nome]:
                 # com snapshot recente basta completar: o endpoint "últimos N" é rápido (o de intervalo chega a 20 s)
                 with httpx.Client(timeout=10, headers=cab) as cli:
-                    r = cli.get(f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{SERIES[nome]}/dados/ultimos/60?formato=json")
+                    r = cli.get(f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{SERIES[nome]}/dados/ultimos/{ULTIMOS_MAX}?formato=json")
                     r.raise_for_status()
                     novos = r.json()
             else:

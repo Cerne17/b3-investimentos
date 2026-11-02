@@ -1,3 +1,4 @@
+import httpx
 import numpy as np
 import pandas as pd
 import pytest
@@ -92,6 +93,31 @@ def test_indice_prefixado_e_cdi(monkeypatch):
     assert pre.iloc[-1] == pytest.approx(1.13, rel=1e-9)  # 252 dias úteis depois da base
     cdi110 = rendafixa.indice("CDI-110")
     assert cdi110.iloc[-1] == pytest.approx((1 + 0.0005 * 1.1) ** 252, rel=1e-9)
+
+
+@pytest.mark.parametrize("nome,dias,usa_ultimos", [("cdi", 5, True), ("cdi", 40, False), ("ipca", 62, True)])
+def test_sgs_completa_snapshot_dentro_do_limite_do_endpoint(monkeypatch, nome, dias, usa_ultimos):
+    ultima = pd.Timestamp.today().normalize() - pd.Timedelta(days=dias)
+    urls = []
+
+    class Cliente:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def get(self, url):
+            urls.append(url)
+            return httpx.Response(200, json=[{"data": "01/01/2030", "valor": "0.5"}], request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(rendafixa, "_cache", {})
+    monkeypatch.setattr(rendafixa, "_do_banco", lambda n: pd.Series({ultima: 0.1}, dtype=float))
+    monkeypatch.setattr(rendafixa.httpx, "Client", Cliente)
+    baixou = []
+    monkeypatch.setattr(rendafixa, "_baixar", lambda cli, n, ini, fim: baixou.append(n) or [])
+    rendafixa._sgs(nome)
+    if usa_ultimos:
+        assert len(urls) == 1 and urls[0].split("?")[0].endswith(f"/dados/ultimos/{rendafixa.ULTIMOS_MAX}") and rendafixa.ULTIMOS_MAX <= 20
+    else:
+        assert not urls and baixou == [nome]  # lacuna maior que os 20 valores: baixa por intervalo
 
 
 def test_aportar_com_vendas_e_congelados(monkeypatch):
