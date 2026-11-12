@@ -82,7 +82,7 @@ export default function Alertas({ alertas, setAlertas, linhas }) {
             </span>
           ))}
         </div>
-      ) : <div className="muted" style={{ fontSize: 13 }}>Nenhum alerta. Eles são checados a cada atualização de cotação (30 s) enquanto esta página está aberta.</div>}
+      ) : <div className="muted" style={{ fontSize: 13 }}>Nenhum alerta. Eles são checados a cada atualização de cotação (a cada minuto no pregão) enquanto esta página está aberta.</div>}
     </div>
   )
 }

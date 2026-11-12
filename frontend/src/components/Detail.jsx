@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { GRUPOS, LABELS } from '../config.js'
 import { colClass, fmt, formatCol, signClass, signed } from '../format.js'
+import { useAoVivo, temCripto } from '../lib/aoVivo.js'
 import { BarChart, LineChart } from './Charts.jsx'
 import { intervaloPadrao, PERIODOS as TODOS, TITULOS } from './live/comum.jsx'
 
@@ -32,13 +33,10 @@ export function PriceChart({ ticker }) {
 export function LiveQuote({ ticker, compact }) {
   const [q, setQ] = useState(null)
   const [erro, setErro] = useState(null)
-  useEffect(() => {
-    let vivo = true
-    const load = () => api.cotacao(ticker).then((d) => vivo && setQ(d)).catch((e) => vivo && setErro(e.message))
-    load()
-    const id = setInterval(load, 30000) // atualiza a cada 30 s
-    return () => { vivo = false; clearInterval(id) }
-  }, [ticker])
+  const atual = useRef(ticker)
+  atual.current = ticker
+  useAoVivo(() => api.cotacao(ticker).then((d) => atual.current === ticker && setQ(d)).catch((e) => atual.current === ticker && setErro(e.message)),
+    [ticker], { cripto: temCripto([ticker]) })
   if (erro) return <div className="alert">{erro}</div>
   if (!q) return <div className="muted">Buscando cotação ao vivo…</div>
   return (

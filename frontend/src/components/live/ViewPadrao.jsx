@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../../api.js'
 import { fmt, signClass, signed } from '../../format.js'
+import { useAoVivo, temCripto } from '../../lib/aoVivo.js'
 import { PriceChart } from '../Detail.jsx'
 
 const PADRAO = ['BOVA11', 'IVVB11', 'HGLG11', 'KNRI11', 'MXRF11', '^BVSP']
@@ -15,13 +16,8 @@ export default function ViewPadrao() {
   const [sel, setSel] = useState(lista[0])
   const [novo, setNovo] = useState('')
 
-  useEffect(() => {
-    try { localStorage.setItem('watchlist', JSON.stringify(lista)) } catch {}
-    const load = () => api.cotacoes(lista).then(setCot).catch(() => {})
-    load()
-    const id = setInterval(load, 30000)
-    return () => clearInterval(id)
-  }, [lista])
+  useEffect(() => { try { localStorage.setItem('watchlist', JSON.stringify(lista)) } catch {} }, [lista])
+  useAoVivo(() => api.cotacoes(lista).then(setCot).catch(() => {}), [lista.join(',')], { cripto: temCripto(lista) })
 
   const add = (e) => {
     e.preventDefault()

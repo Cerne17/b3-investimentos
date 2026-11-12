@@ -48,7 +48,7 @@ export default function Live() {
   return (
     <>
       <h1>Tempo real</h1>
-      <p className="sub">Cotações do Yahoo Finance atualizadas a cada 30 s. Crie views para calcular indicadores sobre um ativo ou comparar vários. Aceita B3 (PETR4, HGLG11), EUA (AAPL), índices (^BVSP) e cripto (BTC-USD).</p>
+      <p className="sub">Cotações do Yahoo Finance atualizadas a cada minuto, com a aba aberta e no horário do pregão (cripto a qualquer hora). Crie views para calcular indicadores sobre um ativo ou comparar vários. Aceita B3 (PETR4, HGLG11), EUA (AAPL), índices (^BVSP) e cripto (BTC-USD).</p>
 
       <div className="view-tabs">
         <button className={`tab ${ativa === 'padrao' ? 'active' : ''}`} onClick={() => setAtiva('padrao')}>Padrão</button>

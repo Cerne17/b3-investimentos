@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api } from '../../api.js'
 import { fmt, signClass, signed } from '../../format.js'
 import { calcular, compilar, EXEMPLOS, series } from '../../lib/formulas.js'
+import { useAoVivo, temCripto } from '../../lib/aoVivo.js'
 import BuscaAtivo from '../BuscaAtivo.jsx'
 import { MultiLineChart } from '../Charts.jsx'
 import { alinhar, chaveIntraday, cor, intervaloPadrao, SeletorPeriodo } from './comum.jsx'
@@ -43,13 +44,7 @@ export default function ViewComparacao({ view, onChange }) {
       .catch((e) => setErros((s) => ({ ...s, [t]: e.message }))))
   }, [tickers.join(','), periodo])
 
-  useEffect(() => {
-    if (!tickers.length) return
-    const load = () => api.cotacoes(tickers).then(setCot).catch(() => {})
-    load()
-    const id = setInterval(load, 30000)
-    return () => clearInterval(id)
-  }, [tickers.join(',')])
+  useAoVivo(() => { if (tickers.length) api.cotacoes(tickers).then(setCot).catch(() => {}) }, [tickers.join(',')], { cripto: temCripto(tickers) })
 
   const prontos = tickers.filter((t) => hists[t])
   const intraday = !['1d', '1wk', '1mo'].includes(intervalo)

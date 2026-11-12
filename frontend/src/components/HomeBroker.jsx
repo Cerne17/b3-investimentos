@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
+import { useAoVivo, temCripto } from '../lib/aoVivo.js'
 import { carregar, novaCarteira, salvar } from '../lib/broker.js'
 import { carteiraDoLink, limparLink, linkDaCarteira } from '../lib/compartilhar.js'
 import { fmt, signClass, signed } from '../format.js'
@@ -265,15 +266,14 @@ export default function HomeBroker({ onOpen, onSimular }) {
     ...e, carteiras: e.carteiras.map((c) => (c.id === carteira.id ? { ...c, transacoes: fn(c.transacoes || []) } : c)),
   }))
 
-  // cotações ao vivo (a API guarda cache de 30 s)
-  useEffect(() => {
+  // cotações ao vivo: a cada minuto, só com a aba aberta e no pregão (lib/aoVivo.js)
+  const chaveCot = tickers.join(',')
+  const chaveAtual = useRef(chaveCot)
+  chaveAtual.current = chaveCot
+  useAoVivo(() => {
     if (!tickers.length) return
-    let vivo = true
-    const load = () => api.cotacoes(tickers).then((d) => { if (vivo) { setCot(d); setAtualizado(new Date()); setTick((t) => t + 1) } }).catch(() => {})
-    load()
-    const id = auto ? setInterval(load, 30000) : null
-    return () => { vivo = false; if (id) clearInterval(id) }
-  }, [tickers.join(','), auto])
+    api.cotacoes(tickers).then((d) => { if (chaveAtual.current === chaveCot) { setCot(d); setAtualizado(new Date()); setTick((t) => t + 1) } }).catch(() => {})
+  }, [chaveCot], { ligado: auto, cripto: temCripto(tickers) })
 
   // dados da base (classe, proventos 12m, DY) para renda estimada e alocação por classe
   useEffect(() => {
@@ -627,7 +627,7 @@ export default function HomeBroker({ onOpen, onSimular }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1>Home Broker</h1>
-          <p className="sub" style={{ marginBottom: 0 }}>Carteira em tempo real · cotações do Yahoo Finance a cada 30 s · salva só neste navegador.</p>
+          <p className="sub" style={{ marginBottom: 0 }}>Carteira em tempo real · cotações do Yahoo Finance a cada minuto no pregão, com a aba aberta · salva só neste navegador.</p>
         </div>
         <div className="hb-status">
           <span className={`pulso ${auto ? 'on' : ''}`} />

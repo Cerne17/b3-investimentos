@@ -4,6 +4,7 @@ Rodar:  uvicorn app.main:app --reload --port 8000
 Docs:   http://localhost:8000/docs  (Swagger)  ·  /redoc  ·  /openapi.json (importável no Postman)
 """
 import hashlib
+import importlib
 import threading
 from datetime import date, datetime, timezone
 from typing import Literal
@@ -14,8 +15,23 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import agenda, comparador, desempenho, importar_b3, ingest, montecarlo, portfolio, rendafixa, repository as repo, yahoo
+from . import rendafixa, repository as repo, yahoo
 from .db import ROOT, SOMENTE_LEITURA, init_db
+
+
+class _SobDemanda:
+    """Módulo importado só no primeiro uso. Cada partida a frio da função na Vercel cobra CPU pelos imports, e scipy,
+    Monte Carlo e o importador de extratos não são usados pela maioria das requisições."""
+
+    def __init__(self, nome: str):
+        self._nome = f"{__package__}.{nome}"
+
+    def __getattr__(self, attr):
+        return getattr(importlib.import_module(self._nome), attr)
+
+
+agenda, comparador, desempenho, importar_b3, ingest, montecarlo, portfolio = (
+    _SobDemanda(n) for n in ("agenda", "comparador", "desempenho", "importar_b3", "ingest", "montecarlo", "portfolio"))
 
 TAGS = [
     {"name": "ETFs", "description": "ETFs listados na B3 armazenados no SQLite."},
@@ -608,17 +624,21 @@ async def _cache_assets(request: Request, call_next):
 
 def _ttl_cdn(request: Request) -> int:
     p = request.url.path
-    if p.startswith(("/api/atualizar", "/api/saude")):
+    if p.startswith("/api/atualizar"):
         return 0  # estado do servidor: sempre fresco
     if p.startswith("/api/tempo-real/cotac"):
-        return 30
+        return 60  # o dashboard atualiza cotações a cada minuto
     if p.startswith("/api/tempo-real/historico"):
         intervalo = request.query_params.get("intervalo", "1d")
         return 60 if intervalo not in ("1d", "1wk", "1mo") else 900
     if p.startswith("/api/tempo-real/"):
         return 3600
-    return 1800  # base local: muda só com a coleta diária
+    return 6 * 3600  # base local: muda só com a coleta diária, que publica um deploy novo (e o deploy novo zera o cache)
 
+
+# página, sw.js e manifest: o navegador sempre revalida (no-cache), mas a CDN guarda por 6 horas e responde sem acordar
+# a função; cada deploy tem o próprio cache, então um build novo nunca fica escondido atrás do antigo
+_SO_NA_CDN = {"Cache-Control": "no-cache", "CDN-Cache-Control": "max-age=21600"}
 
 if DIST.exists():
     app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
@@ -630,10 +650,9 @@ if DIST.exists():
             if arq.suffix in (".js", ".webmanifest", ".json"):  # sw.js e manifest: mesma razão do index.html abaixo
                 corpo = arq.read_bytes()
                 tipo = {".js": "text/javascript", ".webmanifest": "application/manifest+json", ".json": "application/json"}[arq.suffix]
-                return Response(corpo, media_type=tipo, headers={"Cache-Control": "no-cache", "ETag": f'"{hashlib.sha1(corpo).hexdigest()}"'})
-            return FileResponse(arq)
+                return Response(corpo, media_type=tipo, headers={**_SO_NA_CDN, "ETag": f'"{hashlib.sha1(corpo).hexdigest()}"'})
+            return FileResponse(arq, headers={"Cache-Control": "public, max-age=3600, s-maxage=21600"})
         # index.html sem cache e com ETag do conteúdo: na Vercel os arquivos têm data fixa e o ETag padrão (data +
         # tamanho) se repete entre builds, então o navegador recebia 304 e ficava com o dashboard antigo
         html = (DIST / "index.html").read_bytes()
-        return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache",
-                                                               "ETag": f'"{hashlib.sha1(html).hexdigest()}"'})
+        return Response(html, media_type="text/html", headers={**_SO_NA_CDN, "ETag": f'"{hashlib.sha1(html).hexdigest()}"'})
